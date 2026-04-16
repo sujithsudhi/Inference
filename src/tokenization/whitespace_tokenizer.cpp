@@ -60,5 +60,20 @@ std::string WhitespaceTokenizer::Decode(const std::vector<int32_t>& token_ids) c
     return stream.str();
 }
 
+std::optional<int32_t> WhitespaceTokenizer::TokenToId(std::string_view token) const
+{
+    return stable_token_id(std::string(token));
+}
+
+std::optional<std::string> WhitespaceTokenizer::IdToToken(int32_t token_id) const
+{
+    return std::to_string(token_id);
+}
+
+std::optional<std::size_t> WhitespaceTokenizer::VocabSize() const
+{
+    return std::nullopt;
+}
+
 }  // namespace inference::tokenization
 

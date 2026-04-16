@@ -71,12 +71,50 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+## Direct Checkpoint Run
+
+The repo now includes a direct runner that accepts a PyTorch checkpoint plus one input file and
+handles the temporary artifact conversion internally.
+
+For text models, the intended path is now checkpoint + tokenizer + prompt:
+
+```powershell
+.\build-vs2022\Release\run_checkpoint.exe `
+  --checkpoint C:\path\to\imdb_model.pt `
+  --tokenizer C:\path\to\bert-base-uncased\tokenizer.json `
+  --prompt "this movie was great"
+```
+
+For vision models, keep using a model-ready input file:
+
+```powershell
+.\build-vs2022\Release\run_checkpoint.exe `
+  --checkpoint C:\path\to\model.pt `
+  --input C:\path\to\input.json
+```
+
+Current input formats:
+
+- encoder classifier:
+  - preferred: `--tokenizer` plus `--prompt` or `--prompt-file`
+  - fallback: `.json` or `.npz` with `input_ids` or `inputs`, plus optional `attention_mask`
+- vision detector: `.json` or `.npz` with `image`
+
+`run_checkpoint` uses [`mlc-ai/tokenizers-cpp`](https://github.com/mlc-ai/tokenizers-cpp) for
+text tokenization when the build can find Rust/Cargo. If Rust is not installed, the repo still
+builds, but raw prompt execution is unavailable until the tokenizer backend is enabled.
+
+The importer currently supports the checkpoint families already implemented in this repo:
+
+- IMDB-style encoder classifier checkpoints
+- fixed-query vision detector checkpoints
+
 ## First Migration Targets
 
 - move `Transformers/inference/cpp/load_params.cpp` into a dedicated artifact loader area
 - split `Transformers/inference/cpp/model.hpp` into smaller runtime and artifact types
 - replace `executer.cpp` with app binaries that depend on a reusable session API
-- keep the current Python exporter in `Transformers` until the artifact format settles
+- keep export-time graph and checkpoint conversion outside this repo's runtime library
 
 The first migrated artifact loader now lives under `include/inference/artifacts/npz/` and `src/artifacts/npz/`.
 

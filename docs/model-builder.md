@@ -2,6 +2,33 @@
 
 `Inference` now includes a lightweight model-builder layer for checkpoint-backed runtime models.
 
+## Graph Builder
+
+`model.json` can now describe a runtime build using `builder.graph` instead of only a fixed
+`builder.model_type`. The graph builder is intentionally module-level rather than raw-op-level:
+
+- it follows PyTorch-style module boundaries and parameter prefixes
+- it validates graph connectivity through named tensor inputs and outputs
+- it resolves the graph into one of the built-in runtime models backed by the existing C++ layer implementations
+
+The initial graph schema version is `inference.graph/1`.
+
+Each node supports:
+
+- `name`
+- `op`
+- `inputs`
+- `outputs`
+- `param_prefix`
+- `attrs`
+
+The current supported graph patterns are:
+
+- `token_embedding` + `transformer_encoder` + `layer_norm` + `classifier_head`
+  - resolves to `transformers.encoder_classifier`
+- `patch_embedding` + `vision_backbone` + `detection_head`
+  - resolves to `vlm.vision_detector`
+
 ## Current Built-In Model Types
 
 - `transformers.encoder_classifier`
@@ -60,41 +87,130 @@ For generic PyTorch-style exports, `model.json` should include:
 
 If `builder.model_type` is omitted, the registry currently infers the encoder-classifier builder from the state-dict key layout.
 
+## Graph Artifact Example
+
+`model.json` can also carry a graph-backed build description:
+
+```json
+{
+  "builder": {
+    "model_type": "graph",
+    "graph": {
+      "version": "inference.graph/1",
+      "inputs": ["input_ids", "attention_mask"],
+      "outputs": ["logits"],
+      "nodes": [
+        {
+          "name": "token_embedding",
+          "op": "token_embedding",
+          "inputs": ["input_ids"],
+          "outputs": ["embedded_tokens"],
+          "param_prefix": "token_embedding.",
+          "attrs": {
+            "vocab_size": 30522,
+            "embed_dim": 128
+          }
+        },
+        {
+          "name": "encoder",
+          "op": "transformer_encoder",
+          "inputs": ["embedded_tokens", "attention_mask"],
+          "outputs": ["encoded_tokens"],
+          "param_prefix": "encoder.",
+          "attrs": {
+            "max_length": 513,
+            "depth": 4,
+            "num_heads": 8,
+            "mlp_ratio": 2.0,
+            "pooling": "cls"
+          }
+        },
+        {
+          "name": "norm",
+          "op": "layer_norm",
+          "inputs": ["encoded_tokens"],
+          "outputs": ["normalized_tokens"],
+          "param_prefix": "norm."
+        },
+        {
+          "name": "classifier",
+          "op": "classifier_head",
+          "inputs": ["normalized_tokens"],
+          "outputs": ["logits"],
+          "param_prefix": "head.",
+          "attrs": {
+            "num_outputs": 1
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+When `builder.graph` is present, the registry validates the graph and derives the target runtime model type from the node pattern.
+
+## Direct Checkpoint Import
+
+For execution flows, the repo now provides a direct checkpoint runner.
+
+For text models, the preferred user-facing flow is checkpoint + tokenizer + prompt:
+
+```powershell
+.\build-vs2022\Release\run_checkpoint.exe `
+  --checkpoint C:\path\to\model.pt `
+  --tokenizer C:\path\to\tokenizer.json `
+  --prompt "this movie was great"
+```
+
+For model-ready tensor inputs or vision models, `--input` remains available:
+
+```powershell
+.\build-vs2022\Release\run_checkpoint.exe `
+  --checkpoint C:\path\to\model.pt `
+  --input C:\path\to\input.json
+```
+
+`run_checkpoint` uses the bundled importer at `tools/import_pytorch_checkpoint.py` to:
+
+- load a supported PyTorch checkpoint
+- materialize a temporary artifact bundle with `artifact.json`, `model.json`, and `weights.npz`
+- copy the tokenizer into the temporary artifact bundle when one is provided
+- build the runtime model through the graph builder
+- tokenize the prompt for text models or load the provided tensor input
+- execute inference on the resolved runtime input
+
+Text prompt tokenization uses [`mlc-ai/tokenizers-cpp`](https://github.com/mlc-ai/tokenizers-cpp).
+Its official build flow expects the project to be added via CMake and requires Rust to be
+installed. The repo auto-enables that backend when Cargo is available and otherwise keeps the rest
+of the runtime build working without raw prompt support.
+
 ## IMDB End-To-End Test Flow
 
 The end-to-end IMDB test uses:
 
-- the provided PyTorch checkpoint
-- a Python fixture exporter that writes a NumPy-compatible `.npz` archive without requiring NumPy
+- an artifact directory rooted at `artifact.json`
 - the generic NPZ-to-state-dict loader
 - the registry-based model builder
 - the C++ encoder classifier runtime
 
-When `INFERENCE_IMDB_CHECKPOINT` is set, the following tests exercise the full path:
+The following test binary exercises the full path when an IMDB fixture directory is present:
 
-- `imdb_export_fixture_test`
 - `imdb_encoder_classifier_e2e_test`
-
-The IMDB fixture exporter also falls back to the local checkpoint at
-`Transformers/results/epoch-007_train-0.2458_val-0.3269.pt` when it exists.
 
 ## Vision Detector End-To-End Test Flow
 
 The vision-detector end-to-end test uses:
 
-- the provided VLM detector checkpoint
-- a Python fixture exporter that writes an NPZ artifact bundle plus one deterministic image sample
+- an artifact directory rooted at `artifact.json`
 - the registry-based detector builder
 - the C++ detector runtime
 
-When `INFERENCE_VISION_DETECTOR_CHECKPOINT` is set, or when the local
-`VLM/artifacts/checkpoints/vision_detector/best.pt` exists, the following tests
-exercise the full path:
+The following test binary exercises the full path when a detector fixture directory is present:
 
-- `vision_detector_export_fixture_test`
 - `vision_detector_e2e_test`
 
 ## Next Extension Points
 
 - Add more registry entries for decoder language models.
-- Extend the fixture export flow into a reusable artifact-conversion tool.
+- Add an artifact-conversion tool that emits graph-backed manifests directly.

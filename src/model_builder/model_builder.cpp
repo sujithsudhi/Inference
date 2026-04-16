@@ -5,6 +5,8 @@
 #include <cmath>
 #include <set>
 #include <stdexcept>
+#include <string_view>
+#include <unordered_set>
 
 namespace inference::model_builder
 {
@@ -15,6 +17,462 @@ namespace
 using inference::transformer_core::ActivationType;
 using inference::transformer_core::StateDict;
 using inference::transformer_core::Tensor;
+
+struct GraphNodeSpec
+{
+    std::string              name;
+    std::string              op;
+    std::vector<std::string> inputs;
+    std::vector<std::string> outputs;
+    std::string              param_prefix;
+    Json                     attrs = Json::object();
+};
+
+struct GraphSpec
+{
+    std::string              version = "inference.graph/1";
+    std::vector<std::string> inputs;
+    std::vector<std::string> outputs;
+    std::vector<GraphNodeSpec> nodes;
+};
+
+const Json* FindModelMetadata(const Json& metadata);
+
+const Json* FindGraphMetadata(const Json& metadata)
+{
+    if (metadata.contains("builder")
+        && metadata["builder"].is_object()
+        && metadata["builder"].contains("graph")
+        && metadata["builder"]["graph"].is_object())
+    {
+        return &metadata["builder"]["graph"];
+    }
+
+    if (metadata.contains("graph") && metadata["graph"].is_object())
+    {
+        return &metadata["graph"];
+    }
+
+    return nullptr;
+}
+
+bool HasGraphMetadata(const Json& metadata)
+{
+    return FindGraphMetadata(metadata) != nullptr;
+}
+
+std::vector<std::string> ParseStringArray(const Json&        value,
+                                          const std::string& field_name)
+{
+    if (!value.is_array())
+    {
+        throw std::invalid_argument(field_name + " must be an array of strings.");
+    }
+
+    std::vector<std::string> items;
+    items.reserve(value.size());
+
+    for (const auto& item : value)
+    {
+        if (!item.is_string())
+        {
+            throw std::invalid_argument(field_name + " must contain only strings.");
+        }
+        items.push_back(item.get<std::string>());
+    }
+
+    return items;
+}
+
+GraphSpec ParseGraphSpec(const Json& metadata)
+{
+    const Json* graph_json = FindGraphMetadata(metadata);
+    if (graph_json == nullptr)
+    {
+        throw std::invalid_argument("Artifact metadata does not contain builder.graph.");
+    }
+
+    GraphSpec graph;
+    graph.version = graph_json->value("version", graph.version);
+    if (graph.version != "inference.graph/1")
+    {
+        throw std::invalid_argument("Unsupported graph version '" + graph.version + "'.");
+    }
+
+    if (graph_json->contains("inputs"))
+    {
+        graph.inputs = ParseStringArray((*graph_json)["inputs"], "graph.inputs");
+    }
+
+    if (graph_json->contains("outputs"))
+    {
+        graph.outputs = ParseStringArray((*graph_json)["outputs"], "graph.outputs");
+    }
+
+    if (!graph_json->contains("nodes") || !(*graph_json)["nodes"].is_array())
+    {
+        throw std::invalid_argument("builder.graph.nodes must be an array.");
+    }
+
+    graph.nodes.reserve((*graph_json)["nodes"].size());
+
+    for (const auto& node_json : (*graph_json)["nodes"])
+    {
+        if (!node_json.is_object())
+        {
+            throw std::invalid_argument("builder.graph.nodes entries must be objects.");
+        }
+
+        if (!node_json.contains("name") || !node_json["name"].is_string())
+        {
+            throw std::invalid_argument("builder.graph.nodes entries require a string name.");
+        }
+
+        if (!node_json.contains("op") || !node_json["op"].is_string())
+        {
+            throw std::invalid_argument("builder.graph.nodes entries require a string op.");
+        }
+
+        GraphNodeSpec node;
+        node.name = node_json["name"].get<std::string>();
+        node.op   = node_json["op"].get<std::string>();
+
+        if (node_json.contains("inputs"))
+        {
+            node.inputs = ParseStringArray(node_json["inputs"],
+                                           "graph.nodes[" + node.name + "].inputs");
+        }
+
+        if (node_json.contains("outputs"))
+        {
+            node.outputs = ParseStringArray(node_json["outputs"],
+                                            "graph.nodes[" + node.name + "].outputs");
+        }
+
+        if (node.outputs.empty())
+        {
+            node.outputs.push_back(node.name);
+        }
+
+        if (node_json.contains("param_prefix"))
+        {
+            if (!node_json["param_prefix"].is_string())
+            {
+                throw std::invalid_argument("graph.nodes[" + node.name + "].param_prefix must be a string.");
+            }
+            node.param_prefix = node_json["param_prefix"].get<std::string>();
+        }
+
+        if (node_json.contains("attrs"))
+        {
+            if (!node_json["attrs"].is_object())
+            {
+                throw std::invalid_argument("graph.nodes[" + node.name + "].attrs must be an object.");
+            }
+            node.attrs = node_json["attrs"];
+        }
+
+        graph.nodes.push_back(std::move(node));
+    }
+
+    if (graph.outputs.empty() && !graph.nodes.empty())
+    {
+        graph.outputs = graph.nodes.back().outputs;
+    }
+
+    return graph;
+}
+
+void ValidateGraphSpec(const GraphSpec& graph)
+{
+    if (graph.nodes.empty())
+    {
+        throw std::invalid_argument("builder.graph.nodes must not be empty.");
+    }
+
+    std::unordered_set<std::string> graph_inputs(graph.inputs.begin(), graph.inputs.end());
+    std::unordered_set<std::string> produced_outputs;
+    std::unordered_set<std::string> node_names;
+
+    for (const auto& node : graph.nodes)
+    {
+        if (node.name.empty())
+        {
+            throw std::invalid_argument("Graph nodes must have non-empty names.");
+        }
+
+        if (!node_names.insert(node.name).second)
+        {
+            throw std::invalid_argument("Duplicate graph node name '" + node.name + "'.");
+        }
+
+        for (const auto& input_name : node.inputs)
+        {
+            if (graph_inputs.find(input_name) == graph_inputs.end()
+                && produced_outputs.find(input_name) == produced_outputs.end())
+            {
+                throw std::invalid_argument("Graph node '"
+                                            + node.name
+                                            + "' references unknown input '"
+                                            + input_name
+                                            + "'.");
+            }
+        }
+
+        std::unordered_set<std::string> local_outputs;
+        for (const auto& output_name : node.outputs)
+        {
+            if (output_name.empty())
+            {
+                throw std::invalid_argument("Graph node '" + node.name + "' declares an empty output name.");
+            }
+
+            if (!local_outputs.insert(output_name).second)
+            {
+                throw std::invalid_argument("Graph node '"
+                                            + node.name
+                                            + "' declares duplicate output '"
+                                            + output_name
+                                            + "'.");
+            }
+
+            if (graph_inputs.find(output_name) != graph_inputs.end()
+                || !produced_outputs.insert(output_name).second)
+            {
+                throw std::invalid_argument("Graph output '" + output_name + "' is defined more than once.");
+            }
+        }
+    }
+
+    for (const auto& output_name : graph.outputs)
+    {
+        if (graph_inputs.find(output_name) == graph_inputs.end()
+            && produced_outputs.find(output_name) == produced_outputs.end())
+        {
+            throw std::invalid_argument("builder.graph.outputs references unknown tensor '" + output_name + "'.");
+        }
+    }
+}
+
+const GraphNodeSpec* FindUniqueGraphNode(const GraphSpec&       graph,
+                                         const std::string_view op)
+{
+    const GraphNodeSpec* match = nullptr;
+
+    for (const auto& node : graph.nodes)
+    {
+        if (node.op != op)
+        {
+            continue;
+        }
+
+        if (match != nullptr)
+        {
+            throw std::invalid_argument("builder.graph contains more than one '" + std::string(op) + "' node.");
+        }
+
+        match = &node;
+    }
+
+    return match;
+}
+
+bool GraphHasOp(const GraphSpec&       graph,
+                const std::string_view op)
+{
+    return FindUniqueGraphNode(graph, op) != nullptr;
+}
+
+void MergeObject(Json&        target,
+                 const Json* source)
+{
+    if (source == nullptr || !source->is_object())
+    {
+        return;
+    }
+
+    for (const auto& [key, value] : source->items())
+    {
+        target[key] = value;
+    }
+}
+
+Json ResolveGraphModelConfig(const Json& metadata)
+{
+    const Json* model_cfg = FindModelMetadata(metadata);
+    if (model_cfg == nullptr)
+    {
+        return Json::object();
+    }
+
+    return *model_cfg;
+}
+
+std::string InferGraphModelType(const GraphSpec& graph)
+{
+    const bool is_encoder_classifier =
+        GraphHasOp(graph, "token_embedding")
+        && GraphHasOp(graph, "transformer_encoder")
+        && GraphHasOp(graph, "layer_norm")
+        && GraphHasOp(graph, "classifier_head");
+
+    const bool is_vision_detector =
+        GraphHasOp(graph, "patch_embedding")
+        && GraphHasOp(graph, "vision_backbone")
+        && GraphHasOp(graph, "detection_head");
+
+    if (is_encoder_classifier == is_vision_detector)
+    {
+        throw std::invalid_argument("Unable to resolve a supported runtime model from builder.graph.");
+    }
+
+    return is_encoder_classifier
+               ? "transformers.encoder_classifier"
+               : "vlm.vision_detector";
+}
+
+std::string ValidateGraphModelTypeHint(const Json&        metadata,
+                                       const std::string& graph_model_type)
+{
+    if (metadata.contains("builder")
+        && metadata["builder"].is_object()
+        && metadata["builder"].contains("model_type")
+        && metadata["builder"]["model_type"].is_string())
+    {
+        const std::string hinted = metadata["builder"]["model_type"].get<std::string>();
+        if (hinted != "graph" && hinted != graph_model_type)
+        {
+            throw std::invalid_argument("builder.model_type '"
+                                        + hinted
+                                        + "' does not match graph-derived type '"
+                                        + graph_model_type
+                                        + "'.");
+        }
+    }
+
+    return graph_model_type;
+}
+
+void ValidateGraphPrefixes(const GraphSpec& graph,
+                           const StateDict& state_dict)
+{
+    for (const auto& node : graph.nodes)
+    {
+        if (node.param_prefix.empty())
+        {
+            continue;
+        }
+
+        const bool found = std::any_of(state_dict.begin(),
+                                       state_dict.end(),
+                                       [&](const auto& kv)
+                                       {
+                                           return kv.first.rfind(node.param_prefix, 0) == 0;
+                                       });
+
+        if (!found)
+        {
+            throw std::invalid_argument("Graph node '"
+                                        + node.name
+                                        + "' did not match any state_dict tensor with prefix '"
+                                        + node.param_prefix
+                                        + "'.");
+        }
+    }
+}
+
+Json BuildGraphEncoderMetadata(const Json&      metadata,
+                               const GraphSpec& graph)
+{
+    Json model_cfg = ResolveGraphModelConfig(metadata);
+
+    MergeObject(model_cfg, FindUniqueGraphNode(graph, "token_embedding") != nullptr
+                               ? &FindUniqueGraphNode(graph, "token_embedding")->attrs
+                               : nullptr);
+    MergeObject(model_cfg, FindUniqueGraphNode(graph, "cls_token") != nullptr
+                               ? &FindUniqueGraphNode(graph, "cls_token")->attrs
+                               : nullptr);
+    MergeObject(model_cfg, FindUniqueGraphNode(graph, "positional_encoding") != nullptr
+                               ? &FindUniqueGraphNode(graph, "positional_encoding")->attrs
+                               : nullptr);
+    MergeObject(model_cfg, FindUniqueGraphNode(graph, "transformer_encoder") != nullptr
+                               ? &FindUniqueGraphNode(graph, "transformer_encoder")->attrs
+                               : nullptr);
+    MergeObject(model_cfg, FindUniqueGraphNode(graph, "layer_norm") != nullptr
+                               ? &FindUniqueGraphNode(graph, "layer_norm")->attrs
+                               : nullptr);
+    MergeObject(model_cfg, FindUniqueGraphNode(graph, "classifier_head") != nullptr
+                               ? &FindUniqueGraphNode(graph, "classifier_head")->attrs
+                               : nullptr);
+
+    if (!model_cfg.contains("num_outputs")
+        && model_cfg.contains("num_classes")
+        && model_cfg["num_classes"].is_number_integer())
+    {
+        model_cfg["num_outputs"] = model_cfg["num_classes"];
+    }
+
+    return Json{{"model", model_cfg}};
+}
+
+Json BuildGraphVisionMetadata(const Json&      metadata,
+                              const GraphSpec& graph)
+{
+    const Json  model_cfg     = ResolveGraphModelConfig(metadata);
+    const Json* backbone_base = model_cfg.contains("backbone") && model_cfg["backbone"].is_object()
+                                    ? &model_cfg["backbone"]
+                                    : &model_cfg;
+    const Json* head_base     = model_cfg.contains("head") && model_cfg["head"].is_object()
+                                    ? &model_cfg["head"]
+                                    : &model_cfg;
+
+    Json backbone_cfg = Json::object();
+    Json head_cfg     = Json::object();
+
+    MergeObject(backbone_cfg, backbone_base);
+    MergeObject(head_cfg, head_base);
+
+    MergeObject(backbone_cfg, FindUniqueGraphNode(graph, "patch_embedding") != nullptr
+                                  ? &FindUniqueGraphNode(graph, "patch_embedding")->attrs
+                                  : nullptr);
+    MergeObject(backbone_cfg, FindUniqueGraphNode(graph, "cls_token") != nullptr
+                                  ? &FindUniqueGraphNode(graph, "cls_token")->attrs
+                                  : nullptr);
+    MergeObject(backbone_cfg, FindUniqueGraphNode(graph, "vision_backbone") != nullptr
+                                  ? &FindUniqueGraphNode(graph, "vision_backbone")->attrs
+                                  : nullptr);
+    MergeObject(head_cfg, FindUniqueGraphNode(graph, "detection_head") != nullptr
+                              ? &FindUniqueGraphNode(graph, "detection_head")->attrs
+                              : nullptr);
+
+    return Json{{"model", {{"backbone", backbone_cfg},
+                           {"head",     head_cfg}}}};
+}
+
+BuiltModel BuildGraphModel(const Json&     metadata,
+                           const StateDict& state_dict)
+{
+    const GraphSpec   graph            = ParseGraphSpec(metadata);
+    const std::string graph_model_type =
+        ValidateGraphModelTypeHint(metadata, InferGraphModelType(graph));
+
+    ValidateGraphSpec(graph);
+    ValidateGraphPrefixes(graph, state_dict);
+
+    if (graph_model_type == "transformers.encoder_classifier")
+    {
+        return BuildEncoderClassifier(BuildGraphEncoderMetadata(metadata, graph), state_dict);
+    }
+
+    if (graph_model_type == "vlm.vision_detector")
+    {
+        return BuildVisionDetector(BuildGraphVisionMetadata(metadata, graph), state_dict);
+    }
+
+    throw std::invalid_argument("No runtime builder available for graph-derived model type '"
+                                + graph_model_type
+                                + "'.");
+}
 
 const Json& ResolveModelMetadata(const Json& metadata)
 {
@@ -199,6 +657,11 @@ void ModelBuilderRegistry::Register(std::string model_type,
 BuiltModel ModelBuilderRegistry::Build(const Json&     metadata,
                                        const StateDict& state_dict) const
 {
+    if (HasGraphMetadata(metadata))
+    {
+        return BuildGraphModel(metadata, state_dict);
+    }
+
     const std::string model_type = InferModelType(metadata, state_dict);
     const auto        it         = builders_.find(model_type);
     if (it == builders_.end())
@@ -225,6 +688,13 @@ ModelBuilderRegistry ModelBuilderRegistry::CreateDefault()
 std::string InferModelType(const Json&     metadata,
                            const StateDict& state_dict)
 {
+    if (HasGraphMetadata(metadata))
+    {
+        const GraphSpec graph = ParseGraphSpec(metadata);
+        ValidateGraphSpec(graph);
+        return ValidateGraphModelTypeHint(metadata, InferGraphModelType(graph));
+    }
+
     if (metadata.contains("builder")
         && metadata["builder"].is_object()
         && metadata["builder"].contains("model_type")
@@ -318,6 +788,10 @@ models::EncoderClassifierConfig ResolveEncoderClassifierConfig(const Json&     m
     else if (head_weight != nullptr)
     {
         config.num_outputs = head_weight->dim(0);
+    }
+    else if (model_cfg.contains("num_classes") && model_cfg["num_classes"].is_number_integer())
+    {
+        config.num_outputs = model_cfg["num_classes"].get<std::int64_t>();
     }
     else
     {

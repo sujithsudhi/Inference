@@ -8,6 +8,7 @@ cmake_policy(SET CMP0169 OLD)
 option(BUILD_APPS  "Build command-line applications." ON)
 option(BUILD_TESTS "Build test binaries." ON)
 option(BUILD_TRANSFORMER_NPZ_LOADER "Build the migrated transformer NPZ loader." ON)
+option(INFERENCE_ENABLE_TOKENIZERS_CPP "Build the tokenizers-cpp backend for text tokenization." ON)
 
 FetchContent_Declare(json
                     GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -20,6 +21,7 @@ add_library(inference STATIC
     src/core/artifact.cpp
     src/runtime/session.cpp
     src/runtime/null_model_adapter.cpp
+    src/tokenization/tokenizer_factory.cpp
     src/tokenization/whitespace_tokenizer.cpp
     src/transformer_core/common.cpp
     src/transformer_core/text.cpp
@@ -107,6 +109,32 @@ if (BUILD_TRANSFORMER_NPZ_LOADER)
     )
 endif()
 
+if (INFERENCE_ENABLE_TOKENIZERS_CPP)
+    find_program(INFERENCE_CARGO_EXECUTABLE cargo)
+
+    if (INFERENCE_CARGO_EXECUTABLE)
+        FetchContent_Declare(tokenizers_cpp
+                            GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git
+                            GIT_TAG v0.1.1
+        )
+        FetchContent_MakeAvailable(tokenizers_cpp)
+
+        target_link_libraries(inference
+            PUBLIC
+                tokenizers_cpp
+        )
+
+        target_compile_definitions(inference
+            PUBLIC
+                INFERENCE_HAS_TOKENIZERS_CPP
+        )
+    else()
+        message(WARNING
+                "INFERENCE_ENABLE_TOKENIZERS_CPP is ON but cargo was not found. "
+                "The build will continue without tokenizers-cpp support.")
+    endif()
+endif()
+
 target_include_directories(inference
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -135,19 +163,23 @@ if (BUILD_APPS)
             inference
     )
 
-    add_executable(run_inference
-        apps/inference.cpp
+    add_executable(run_checkpoint
+        apps/run_checkpoint.cpp
     )
 
-    target_link_libraries(run_inference
+    target_link_libraries(run_checkpoint
         PRIVATE
             inference
+    )
+
+    target_compile_definitions(run_checkpoint
+        PRIVATE
+            INFERENCE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     )
 endif()
 
 if (BUILD_TESTS)
     enable_testing()
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     add_executable(session_smoke_test
         tests/session_smoke_test.cpp
@@ -185,15 +217,6 @@ if (BUILD_TESTS)
             inference
     )
 
-    add_executable(vision_pipeline_test
-        tests/vision_pipeline_test.cpp
-    )
-
-    target_link_libraries(vision_pipeline_test
-        PRIVATE
-            inference
-    )
-
     add_executable(model_builder_smoke_test
         tests/model_builder_smoke_test.cpp
     )
@@ -225,26 +248,13 @@ if (BUILD_TESTS)
     add_test(NAME artifact_bundle_smoke_test COMMAND artifact_bundle_smoke_test)
     add_test(NAME transformer_core_smoke_test COMMAND transformer_core_smoke_test)
     add_test(NAME state_dict_loader_smoke_test COMMAND state_dict_loader_smoke_test)
-    add_test(NAME vision_pipeline_test COMMAND vision_pipeline_test)
     add_test(NAME model_builder_smoke_test COMMAND model_builder_smoke_test)
-
-    add_test(NAME imdb_export_fixture_test
-             COMMAND ${Python3_EXECUTABLE}
-                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/support/export_imdb_fixture.py
-                     ${CMAKE_CURRENT_BINARY_DIR}/testdata/imdb_fixture)
 
     add_test(NAME imdb_encoder_classifier_e2e_test
              COMMAND imdb_encoder_classifier_e2e_test
                      ${CMAKE_CURRENT_BINARY_DIR}/testdata/imdb_fixture)
-    set_tests_properties(imdb_encoder_classifier_e2e_test PROPERTIES DEPENDS imdb_export_fixture_test)
-
-    add_test(NAME vision_detector_export_fixture_test
-             COMMAND ${Python3_EXECUTABLE}
-                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/support/export_detection_fixture.py
-                     ${CMAKE_CURRENT_BINARY_DIR}/testdata/vision_detector_fixture)
 
     add_test(NAME vision_detector_e2e_test
              COMMAND vision_detector_e2e_test
                      ${CMAKE_CURRENT_BINARY_DIR}/testdata/vision_detector_fixture)
-    set_tests_properties(vision_detector_e2e_test PROPERTIES DEPENDS vision_detector_export_fixture_test)
 endif()
