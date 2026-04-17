@@ -1,3 +1,6 @@
+/// \file
+/// \brief Smoke tests for the artifact model-builder registry.
+
 #include <cstdio>
 #include <stdexcept>
 #include <string>

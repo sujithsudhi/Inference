@@ -1,3 +1,6 @@
+/// \file
+/// \brief Text-oriented transformer-core layer implementation.
+
 #include "inference/transformer_core/text.hpp"
 
 #include <algorithm>

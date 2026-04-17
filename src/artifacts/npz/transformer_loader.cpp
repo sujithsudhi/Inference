@@ -1,3 +1,6 @@
+/// \file
+/// \brief Legacy transformer NPZ loader and inspection implementation.
+
 #include "inference/artifacts/npz/transformer_loader.hpp"
 
 #include <algorithm>

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Smoke test for the adapter-oriented runtime session.
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>

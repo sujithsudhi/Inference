@@ -1,3 +1,6 @@
+/// \file
+/// \brief Lightweight status helper implementation.
+
 #include "inference/core/status.hpp"
 
 #include <utility>

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Tokenizer factory and backend-loading implementation.
+
 #include "inference/tokenization/tokenizer_factory.hpp"
 
 #include <fstream>

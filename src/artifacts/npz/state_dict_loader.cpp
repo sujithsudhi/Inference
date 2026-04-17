@@ -1,3 +1,6 @@
+/// \file
+/// \brief Generic NPZ state-dict artifact loader implementation.
+
 #include "inference/artifacts/npz/state_dict_loader.hpp"
 
 #include <stdexcept>

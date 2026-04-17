@@ -1,3 +1,6 @@
+/// \file
+/// \brief Checkpoint-backed model runner implementation.
+
 #include "inference/runtime/model_runner.hpp"
 
 #include <stdexcept>

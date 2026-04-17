@@ -1,3 +1,6 @@
+/// \file
+/// \brief Encoder-classifier runtime model implementation.
+
 #include "inference/models/encoder_classifier.hpp"
 
 #include <algorithm>

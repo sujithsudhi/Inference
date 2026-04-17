@@ -1,3 +1,6 @@
+/// \file
+/// \brief Whitespace-tokenizer fallback implementation.
+
 #include "inference/tokenization/whitespace_tokenizer.hpp"
 
 #include <cstdint>

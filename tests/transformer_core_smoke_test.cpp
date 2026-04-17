@@ -1,3 +1,6 @@
+/// \file
+/// \brief Smoke tests for transformer-core parameter surfaces and basic execution.
+
 #include <cstdio>
 #include <stdexcept>
 #include <string>

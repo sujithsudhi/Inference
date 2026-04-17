@@ -1,3 +1,6 @@
+/// \file
+/// \brief Artifact bundle inspection implementation.
+
 #include "inference/core/artifact.hpp"
 
 #include <filesystem>

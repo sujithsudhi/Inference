@@ -1,3 +1,6 @@
+/// \file
+/// \brief Direct checkpoint import and execution CLI entry point.
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>

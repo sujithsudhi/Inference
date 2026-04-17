@@ -1,3 +1,6 @@
+/// \file
+/// \brief Regression tests for transformer-core behavior and model surfaces.
+
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>

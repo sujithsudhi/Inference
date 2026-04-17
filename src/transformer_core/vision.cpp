@@ -1,3 +1,6 @@
+/// \file
+/// \brief Vision-oriented transformer-core layer and model implementation.
+
 #include "inference/transformer_core/vision.hpp"
 
 #include <stdexcept>

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Shared transformer-core layer and attention implementation.
+
 #include "inference/transformer_core/common.hpp"
 
 #include <algorithm>

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Vision-detector runtime model implementation.
+
 #include "inference/models/vision_detector.hpp"
 
 #include <algorithm>

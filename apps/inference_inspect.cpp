@@ -1,3 +1,6 @@
+/// \file
+/// \brief Artifact inspection CLI entry point.
+
 #include <iostream>
 #include <string>
 

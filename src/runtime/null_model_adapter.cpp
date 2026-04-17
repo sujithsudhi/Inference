@@ -1,3 +1,6 @@
+/// \file
+/// \brief Placeholder model-adapter implementation used by smoke tests.
+
 #include "inference/runtime/null_model_adapter.hpp"
 
 #include <sstream>

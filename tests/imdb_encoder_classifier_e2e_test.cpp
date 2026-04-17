@@ -1,3 +1,6 @@
+/// \file
+/// \brief End-to-end test for the IMDB encoder-classifier runtime path.
+
 #include <cstdio>
 #include <cmath>
 #include <filesystem>

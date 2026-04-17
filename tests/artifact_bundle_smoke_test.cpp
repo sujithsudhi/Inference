@@ -1,3 +1,6 @@
+/// \file
+/// \brief Smoke test for artifact bundle inspection.
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>

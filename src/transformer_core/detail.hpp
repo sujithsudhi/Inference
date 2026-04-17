@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Internal transformer-core helper utilities.
+
 #include <cstdint>
 #include <sstream>
 #include <stdexcept>

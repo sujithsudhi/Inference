@@ -1,3 +1,6 @@
+/// \file
+/// \brief Smoke test for the generic NPZ state-dict loader.
+
 #include <cstdio>
 #include <filesystem>
 #include <stdexcept>
@@ -35,8 +38,15 @@ int main()
         std::vector<float> linear_weight = {1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F};
         std::vector<float> linear_bias   = {0.5F, -0.5F};
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4267)
+#endif
         cnpy::npz_save(npz_path.string(), "linear.weight", linear_weight.data(), {2UL, 3UL}, "w");
         cnpy::npz_save(npz_path.string(), "linear.bias", linear_bias.data(), {2UL}, "a");
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
         const auto state_dict = inference::artifacts::npz::LoadStateDict(cnpy::npz_load(npz_path.string()));
 

@@ -1,3 +1,6 @@
+/// \file
+/// \brief Registry-backed artifact model-builder implementation.
+
 #include "inference/model_builder/model_builder.hpp"
 
 #include <algorithm>

@@ -1,3 +1,6 @@
+/// \file
+/// \brief End-to-end test for the vision-detector runtime path.
+
 #include <cstdio>
 #include <filesystem>
 #include <stdexcept>

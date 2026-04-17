@@ -1,3 +1,6 @@
+/// \file
+/// \brief Adapter-oriented runtime session implementation.
+
 #include "inference/runtime/session.hpp"
 
 #include <stdexcept>

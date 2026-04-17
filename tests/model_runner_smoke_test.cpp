@@ -1,3 +1,6 @@
+/// \file
+/// \brief Smoke tests for the checkpoint-backed runtime runner.
+
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -90,6 +93,10 @@ void WriteArtifactBundle(const std::filesystem::path& root,
     std::filesystem::remove(npz_path);
 
     bool first = true;
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4267)
+#endif
     for (const auto& [key, tensor] : state_dict)
     {
         const auto shape = ToNpyShape(tensor.shape());
@@ -100,6 +107,9 @@ void WriteArtifactBundle(const std::filesystem::path& root,
                        first ? "w" : "a");
         first = false;
     }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 }
 
 void TestMissingArtifactStatus()
