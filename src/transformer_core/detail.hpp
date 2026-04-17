@@ -113,6 +113,16 @@ inline void AppendSpecs(std::vector<TensorSpec>&       dst,
 
 inline Tensor ConcatSequence(const Tensor& lhs, const Tensor& rhs)
 {
+    if (lhs.rank() != 3 || rhs.rank() != 3)
+    {
+        throw std::invalid_argument("ConcatSequence expects rank-3 [batch, seq, dim] tensors.");
+    }
+
+    if (lhs.dim(0) != rhs.dim(0) || lhs.dim(2) != rhs.dim(2))
+    {
+        throw std::invalid_argument("ConcatSequence expects matching batch size and embedding dimension.");
+    }
+
     const auto batch = lhs.dim(0);
     const auto seq_l = lhs.dim(1);
     const auto seq_r = rhs.dim(1);

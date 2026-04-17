@@ -71,6 +71,17 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+## Builder vs Runner
+
+The repo now keeps artifact resolution and inference-time execution on separate library seams:
+
+- `model_builder::ModelBuilderRegistry`
+  validates `builder.graph` metadata and constructs one concrete runtime model
+- `runtime::ModelRunner`
+  owns the built model and exposes execution-only entry points used by apps such as `run_checkpoint`
+
+This keeps graph interpretation out of the application layer and gives tests a stable runtime API to target.
+
 ## Direct Checkpoint Run
 
 The repo now includes a direct runner that accepts a PyTorch checkpoint plus one input file and
@@ -109,6 +120,22 @@ The importer currently supports the checkpoint families already implemented in t
 - IMDB-style encoder classifier checkpoints
 - fixed-query vision detector checkpoints
 
+## Supported Transformer Blocks
+
+The low-level `transformer_core` surface currently has direct smoke or regression coverage for:
+
+- `Linear`
+- `LayerNorm`
+- `RotaryEmbedding`
+- `MultiHeadSelfAttention`
+- `FeedForward`
+- `TransformerEncoderLayer`
+- `TransformerDecoderLayer`
+- `PatchEmbedding`
+- `ViTEncoderLayer`
+- `VisionTransformer`
+- `TextTransformer`
+
 ## First Migration Targets
 
 - move `Transformers/inference/cpp/load_params.cpp` into a dedicated artifact loader area
@@ -120,4 +147,4 @@ The first migrated artifact loader now lives under `include/inference/artifacts/
 
 The first generic registry-backed builder now lives under `include/inference/model_builder/` and `src/model_builder/`, with the initial IMDB-style encoder classifier under `include/inference/models/`.
 
-More detail lives in `docs/artifact-contract.md`, `docs/architecture.md`, `docs/migration-from-transformers.md`, and `docs/model-builder.md`.
+More detail lives in `docs/artifact-contract.md`, `docs/architecture.md`, `docs/migration-from-transformers.md`, `docs/model-builder.md`, and `docs/runtime-runner.md`.

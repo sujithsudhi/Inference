@@ -2,6 +2,11 @@
 
 `Inference` now includes a lightweight model-builder layer for checkpoint-backed runtime models.
 
+The builder and the execution boundary are intentionally separate:
+
+- `model_builder::ModelBuilderRegistry` validates metadata and builds concrete models
+- `runtime::ModelRunner` owns those built models and exposes execution-only entry points
+
 ## Graph Builder
 
 `model.json` can now describe a runtime build using `builder.graph` instead of only a fixed
@@ -176,7 +181,7 @@ For model-ready tensor inputs or vision models, `--input` remains available:
 - load a supported PyTorch checkpoint
 - materialize a temporary artifact bundle with `artifact.json`, `model.json`, and `weights.npz`
 - copy the tokenizer into the temporary artifact bundle when one is provided
-- build the runtime model through the graph builder
+- load the artifact through `runtime::ModelRunner`, which internally delegates model construction to the graph builder
 - tokenize the prompt for text models or load the provided tensor input
 - execute inference on the resolved runtime input
 
@@ -214,3 +219,4 @@ The following test binary exercises the full path when a detector fixture direct
 
 - Add more registry entries for decoder language models.
 - Add an artifact-conversion tool that emits graph-backed manifests directly.
+- Add more runner entry points as new artifact-backed runtime families become executable.

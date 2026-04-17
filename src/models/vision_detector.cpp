@@ -581,14 +581,14 @@ Tensor VisionDetector::BuildLocalAttentionMask(std::int64_t grid_height,
     const std::int64_t window_radius = config_.backbone.local_window_size / 2;
     const std::int64_t total_tokens  = patch_count + (config_.backbone.use_cls_token ? 1 : 0);
 
-    Tensor mask({total_tokens, total_tokens}, 0.0F);
+    Tensor mask({1, 1, total_tokens, total_tokens}, 0.0F);
 
     if (config_.backbone.use_cls_token)
     {
         for (std::int64_t index = 0; index < total_tokens; ++index)
         {
-            mask.at({0, index}) = 1.0F;
-            mask.at({index, 0}) = 1.0F;
+            mask.at({0, 0, 0, index}) = 1.0F;
+            mask.at({0, 0, index, 0}) = 1.0F;
         }
     }
 
@@ -612,7 +612,7 @@ Tensor VisionDetector::BuildLocalAttentionMask(std::int64_t grid_height,
 
             const std::int64_t row = lhs + (config_.backbone.use_cls_token ? 1 : 0);
             const std::int64_t col = rhs + (config_.backbone.use_cls_token ? 1 : 0);
-            mask.at({row, col}) = 1.0F;
+            mask.at({0, 0, row, col}) = 1.0F;
         }
     }
 

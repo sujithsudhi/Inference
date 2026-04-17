@@ -13,6 +13,10 @@
 
 Owns artifact manifests, layout compatibility, and model-family-specific loaders such as the migrated NPZ transformer loader.
 
+### `model_builder`
+
+Owns graph validation plus model-family resolution from `model.json` and state-dict metadata.
+
 ### `core`
 
 Owns artifact discovery and shared status/result types.
@@ -23,11 +27,18 @@ Owns tokenizer interfaces. The initial whitespace tokenizer is only a developmen
 
 ### `runtime`
 
-Owns request and response types, adapter interfaces, and the session object that applications use.
+Owns execution-time boundaries such as adapters, the generic `Session`, and the concrete
+`ModelRunner` used by checkpoint-backed apps.
 
 ### `apps`
 
 Small binaries for inspection, smoke testing, and later interactive or server-style inference entry points.
+
+## Builder vs Runner
+
+- `model_builder` stops at constructing a concrete runtime model.
+- `runtime` owns execution APIs over those constructed models.
+- `apps` should use runtime-facing runners instead of reaching into builder internals directly.
 
 ## Intended Growth Path
 

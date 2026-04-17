@@ -122,36 +122,53 @@ Tensor ConcatSequence(const Tensor& lhs,
     return out;
 }
 
-Tensor NormalizeAttentionMask(const Tensor& mask)
+Tensor NormalizeAttentionMask(const Tensor& mask,
+                              std::int64_t  batch_size,
+                              std::int64_t  query_len,
+                              std::int64_t  key_len)
 {
     if (mask.rank() == 2)
     {
-        if (mask.dim(0) == mask.dim(1))
+        if (mask.dim(0) == batch_size && mask.dim(1) == key_len)
         {
-            Tensor out({1, 1, mask.dim(0), mask.dim(1)});
-            for (std::int64_t q = 0; q < mask.dim(0); ++q)
+            Tensor out({batch_size, 1, 1, key_len});
+            for (std::int64_t batch = 0; batch < batch_size; ++batch)
             {
-                for (std::int64_t k = 0; k < mask.dim(1); ++k)
+                for (std::int64_t key = 0; key < key_len; ++key)
                 {
-                    out.at({0, 0, q, k}) = mask.at({q, k});
+                    out.at({batch, 0, 0, key}) = mask.at({batch, key});
                 }
             }
             return out;
         }
 
-        Tensor out({mask.dim(0), 1, 1, mask.dim(1)});
-        for (std::int64_t batch = 0; batch < mask.dim(0); ++batch)
+        if (mask.dim(0) == query_len && mask.dim(1) == key_len)
         {
-            for (std::int64_t key = 0; key < mask.dim(1); ++key)
+            Tensor out({1, 1, query_len, key_len});
+            for (std::int64_t query = 0; query < query_len; ++query)
             {
-                out.at({batch, 0, 0, key}) = mask.at({batch, key});
+                for (std::int64_t key = 0; key < key_len; ++key)
+                {
+                    out.at({0, 0, query, key}) = mask.at({query, key});
+                }
             }
+            return out;
         }
-        return out;
+
+        throw std::invalid_argument("Rank-2 attention masks must be shaped as [batch, key_len] "
+                                    "or [query_len, key_len].");
     }
 
     if (mask.rank() == 3)
     {
+        if (mask.dim(0) != batch_size
+            || mask.dim(1) != query_len
+            || mask.dim(2) != key_len)
+        {
+            throw std::invalid_argument("Rank-3 attention masks must be shaped as "
+                                        "[batch, query_len, key_len].");
+        }
+
         Tensor out({mask.dim(0), 1, mask.dim(1), mask.dim(2)});
         for (std::int64_t batch = 0; batch < mask.dim(0); ++batch)
         {
@@ -168,6 +185,16 @@ Tensor NormalizeAttentionMask(const Tensor& mask)
 
     if (mask.rank() == 4)
     {
+        const bool batch_ok = mask.dim(0) == 1 || mask.dim(0) == batch_size;
+        const bool query_ok = mask.dim(2) == 1 || mask.dim(2) == query_len;
+        const bool key_ok   = mask.dim(3) == 1 || mask.dim(3) == key_len;
+
+        if (!batch_ok || !query_ok || !key_ok)
+        {
+            throw std::invalid_argument("Rank-4 attention masks must broadcast to "
+                                        "[batch, heads, query_len, key_len].");
+        }
+
         return mask;
     }
 
@@ -622,7 +649,10 @@ AttentionResult MultiHeadSelfAttention::Forward(const Tensor&                   
     std::optional<Tensor> attention_mask = std::nullopt;
     if (mask.has_value())
     {
-        attention_mask = NormalizeAttentionMask(*mask);
+        attention_mask = NormalizeAttentionMask(*mask,
+                                                x.dim(0),
+                                                q.dim(2),
+                                                k.dim(2));
     }
 
     const bool capture_attention = need_weights || capture_attention_;
@@ -780,10 +810,11 @@ AttentionResult MultiHeadSelfAttention::ScaledDotProduct(const Tensor&          
         throw std::invalid_argument("ScaledDotProduct expects rank-4 q/k/v tensors.");
     }
 
-    const auto batch_size = q.dim(0);
-    const auto num_heads  = q.dim(1);
-    const auto q_len      = q.dim(2);
-    const auto k_len      = k.dim(2);
+    const auto batch_size    = q.dim(0);
+    const auto num_heads     = q.dim(1);
+    const auto q_len         = q.dim(2);
+    const auto k_len         = k.dim(2);
+    const auto causal_offset = std::max<std::int64_t>(0, k_len - q_len);
 
     if (k.dim(0) != batch_size
         || v.dim(0) != batch_size
@@ -821,7 +852,7 @@ AttentionResult MultiHeadSelfAttention::ScaledDotProduct(const Tensor&          
                 {
                     bool allowed = true;
 
-                    if (is_causal && key > query)
+                    if (is_causal && key > causal_offset + query)
                     {
                         allowed = false;
                     }

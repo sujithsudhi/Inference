@@ -212,32 +212,38 @@ VisionTransformer::VisionTransformer(const VisionTransformerConfig& config)
 
 Tensor VisionTransformer::Forward(const Tensor& x)
 {
-    // Patch embedding
-    Tensor patches = patch_embed_.Forward(x);
-
-    // Add batch dim if needed, but assume input has batch
-    const auto batch_size = patches.dim(0);
-
-    // Expand pos_embed and cls_token to batch size (assume batch=1 for now)
-    Tensor pos_embed_expanded = pos_embed_;
-    Tensor cls_token_expanded = cls_token_;
-
-    // Concat cls token
-    Tensor tokens = detail::ConcatSequence(cls_token_expanded, patches);
-
-    // Add position embeddings
-    for (std::size_t i = 0; i < tokens.numel(); ++i)
+    if (x.rank() != 4)
     {
-        tokens.flat(i) += pos_embed_expanded.flat(i % pos_embed_expanded.numel());
+        throw std::invalid_argument("VisionTransformer expects [batch, channels, height, width] inputs.");
     }
 
-    // Run through layers
+    Tensor patches = patch_embed_.Forward(x);
+    const auto batch_size = patches.dim(0);
+    Tensor tokens({batch_size, patches.dim(1) + 1, patches.dim(2)}, 0.0F);
+
+    for (std::int64_t batch = 0; batch < batch_size; ++batch)
+    {
+        for (std::int64_t dim = 0; dim < patches.dim(2); ++dim)
+        {
+            tokens.at({batch, 0, dim}) =
+                cls_token_.at({0, 0, dim}) + pos_embed_.at({0, 0, dim});
+        }
+
+        for (std::int64_t patch = 0; patch < patches.dim(1); ++patch)
+        {
+            for (std::int64_t dim = 0; dim < patches.dim(2); ++dim)
+            {
+                tokens.at({batch, patch + 1, dim}) =
+                    patches.at({batch, patch, dim}) + pos_embed_.at({0, patch + 1, dim});
+            }
+        }
+    }
+
     for (auto& layer : layers_)
     {
         tokens = layer.Forward(tokens);
     }
 
-    // Extract cls token: tokens[:, 0, :]
     const auto embed_dim = tokens.dim(2);
     Tensor cls_output({batch_size, embed_dim}, 0.0F);
     for (std::int64_t b = 0; b < batch_size; ++b)
@@ -255,8 +261,14 @@ void VisionTransformer::LoadParameters(const StateDict&   state_dict,
                                        const std::string& prefix)
 {
     patch_embed_.LoadParameters(state_dict, detail::JoinKey(prefix, "patch_embed."));
-    pos_embed_ = detail::RequireTensor(state_dict, detail::JoinKey(prefix, "pos_embed"));
-    cls_token_ = detail::RequireTensor(state_dict, detail::JoinKey(prefix, "cls_token"));
+    const std::vector<std::int64_t> expected_pos_shape = pos_embed_.shape();
+    const std::vector<std::int64_t> expected_cls_shape = cls_token_.shape();
+    pos_embed_ = detail::RequireTensor(state_dict,
+                                       detail::JoinKey(prefix, "pos_embed"),
+                                       expected_pos_shape);
+    cls_token_ = detail::RequireTensor(state_dict,
+                                       detail::JoinKey(prefix, "cls_token"),
+                                       expected_cls_shape);
 
     for (std::size_t i = 0; i < layers_.size(); ++i)
     {
@@ -293,7 +305,11 @@ TextTransformer::TextTransformer(const TextTransformerConfig& config)
 
 Tensor TextTransformer::Forward(const Tensor& input)
 {
-    // Input is [batch, seq_len] as float, cast to IndexTensor
+    if (input.rank() != 2)
+    {
+        throw std::invalid_argument("TextTransformer expects [batch, seq] floating-point token ids.");
+    }
+
     const auto batch_size = input.dim(0);
     const auto seq_len = input.dim(1);
     IndexTensor token_ids({batch_size, seq_len}, 0);
@@ -305,19 +321,13 @@ Tensor TextTransformer::Forward(const Tensor& input)
         }
     }
 
-    // Token embedding
     Tensor embeddings = token_embed_.Forward(token_ids);
-
-    // Add positional encodings
     embeddings = pos_embed_.Forward(embeddings);
-
-    // Run through layers
     for (auto& layer : layers_)
     {
         embeddings = layer.Forward(embeddings);
     }
 
-    // Use CLS token (assume first token is CLS)
     Tensor cls_token({batch_size, config_.embed_dim}, 0.0F);
     for (std::int64_t b = 0; b < batch_size; ++b)
     {
@@ -327,7 +337,6 @@ Tensor TextTransformer::Forward(const Tensor& input)
         }
     }
 
-    // Classifier
     return classifier_.Forward(cls_token);
 }
 

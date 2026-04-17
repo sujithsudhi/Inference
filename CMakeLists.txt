@@ -19,6 +19,7 @@ FetchContent_MakeAvailable(json)
 add_library(inference STATIC
     src/core/status.cpp
     src/core/artifact.cpp
+    src/runtime/model_runner.cpp
     src/runtime/session.cpp
     src/runtime/null_model_adapter.cpp
     src/tokenization/tokenizer_factory.cpp
@@ -208,6 +209,15 @@ if (BUILD_TESTS)
             inference
     )
 
+    add_executable(transformer_core_regression_test
+        tests/transformer_core_regression_test.cpp
+    )
+
+    target_link_libraries(transformer_core_regression_test
+        PRIVATE
+            inference
+    )
+
     add_executable(state_dict_loader_smoke_test
         tests/state_dict_loader_smoke_test.cpp
     )
@@ -222,6 +232,15 @@ if (BUILD_TESTS)
     )
 
     target_link_libraries(model_builder_smoke_test
+        PRIVATE
+            inference
+    )
+
+    add_executable(model_runner_smoke_test
+        tests/model_runner_smoke_test.cpp
+    )
+
+    target_link_libraries(model_runner_smoke_test
         PRIVATE
             inference
     )
@@ -247,8 +266,10 @@ if (BUILD_TESTS)
     add_test(NAME session_smoke_test COMMAND session_smoke_test)
     add_test(NAME artifact_bundle_smoke_test COMMAND artifact_bundle_smoke_test)
     add_test(NAME transformer_core_smoke_test COMMAND transformer_core_smoke_test)
+    add_test(NAME transformer_core_regression_test COMMAND transformer_core_regression_test)
     add_test(NAME state_dict_loader_smoke_test COMMAND state_dict_loader_smoke_test)
     add_test(NAME model_builder_smoke_test COMMAND model_builder_smoke_test)
+    add_test(NAME model_runner_smoke_test COMMAND model_runner_smoke_test)
 
     add_test(NAME imdb_encoder_classifier_e2e_test
              COMMAND imdb_encoder_classifier_e2e_test

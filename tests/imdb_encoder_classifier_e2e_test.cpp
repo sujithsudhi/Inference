@@ -8,9 +8,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include "inference/artifacts/npz/state_dict_loader.hpp"
 #include "inference/core/artifact.hpp"
-#include "inference/model_builder.hpp"
+#include "inference/runtime/model_runner.hpp"
 
 namespace
 {
@@ -95,18 +94,17 @@ int main(int argc, char** argv)
         }
 
         inference::core::ArtifactBundle bundle(artifact_dir);
-        auto loaded = inference::artifacts::npz::LoadStateDictArtifact(bundle);
-
-        auto registry = inference::model_builder::ModelBuilderRegistry::CreateDefault();
-        auto built    = registry.Build(loaded);
-
-        Expect(built.HasEncoderClassifier(),
-               "IMDB fixture should build an encoder-classifier model.");
+        inference::runtime::ModelRunner runner;
+        const auto                     load_status = runner.Load(bundle);
+        Expect(load_status.ok(),
+               "IMDB fixture should load through ModelRunner.");
+        Expect(runner.HasEncoderClassifier(),
+               "IMDB fixture should resolve to an encoder-classifier model.");
 
         const auto sample = LoadJson(sample_path);
         const IndexTensor inputs         = LoadIndexTensor(sample["inputs"]);
         const Tensor      attention_mask = LoadFloatTensor(sample["attention_mask"]);
-        const Tensor      logits         = built.encoder_classifier->Forward(inputs, attention_mask);
+        const Tensor      logits         = runner.RunEncoderClassifier(inputs, attention_mask);
 
         Expect(logits.shape() == std::vector<std::int64_t>({1, 1}),
                "IMDB end-to-end logits shape mismatch.");

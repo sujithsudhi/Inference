@@ -6,9 +6,8 @@
 
 #include <cnpy.h>
 
-#include "inference/artifacts/npz/state_dict_loader.hpp"
 #include "inference/core/artifact.hpp"
-#include "inference/model_builder.hpp"
+#include "inference/runtime/model_runner.hpp"
 
 namespace
 {
@@ -76,13 +75,12 @@ int main(int argc, char** argv)
         }
 
         inference::core::ArtifactBundle bundle(artifact_dir);
-        auto loaded = inference::artifacts::npz::LoadStateDictArtifact(bundle);
-
-        auto registry = inference::model_builder::ModelBuilderRegistry::CreateDefault();
-        auto built    = registry.Build(loaded);
-
-        Expect(built.HasVisionDetector(),
-               "Vision-detector fixture should build a vision-detector model.");
+        inference::runtime::ModelRunner runner;
+        const auto                     load_status = runner.Load(bundle);
+        Expect(load_status.ok(),
+               "Vision-detector fixture should load through ModelRunner.");
+        Expect(runner.HasVisionDetector(),
+               "Vision-detector fixture should resolve to a vision-detector model.");
 
         const auto sample = cnpy::npz_load(sample_path.string());
         const Tensor image                 = LoadTensor(sample.at("image"));
@@ -91,8 +89,8 @@ int main(int argc, char** argv)
         const Tensor expected_boxes        = LoadTensor(sample.at("pred_boxes"));
         const Tensor expected_objectness   = LoadTensor(sample.at("pred_objectness_logits"));
         const Tensor expected_class_logits = LoadTensor(sample.at("pred_class_logits"));
-        const auto   actual_backbone       = built.vision_detector->ForwardBackbone(image);
-        const auto   actual                = built.vision_detector->Forward(image);
+        const auto   actual_backbone       = runner.RunVisionBackbone(image);
+        const auto   actual                = runner.RunVisionDetector(image);
 
         Expect(actual_backbone.sequence_output.shape() == expected_sequence.shape(),
                "Vision-detector backbone shape mismatch.");

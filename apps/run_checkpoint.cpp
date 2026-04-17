@@ -14,9 +14,8 @@
 #include <cnpy.h>
 #include <nlohmann/json.hpp>
 
-#include "inference/artifacts/npz/state_dict_loader.hpp"
 #include "inference/core/artifact.hpp"
-#include "inference/model_builder.hpp"
+#include "inference/runtime/model_runner.hpp"
 #include "inference/tokenization/tokenizer_factory.hpp"
 
 namespace
@@ -212,6 +211,55 @@ Json LoadJson(const std::filesystem::path& path)
     return payload;
 }
 
+const Json& RequireMatrixField(const Json&        payload,
+                               const std::string& primary_key,
+                               const std::string& fallback_key = "")
+{
+    if (payload.contains(primary_key))
+    {
+        return payload.at(primary_key);
+    }
+
+    if (!fallback_key.empty() && payload.contains(fallback_key))
+    {
+        return payload.at(fallback_key);
+    }
+
+    if (fallback_key.empty())
+    {
+        throw std::runtime_error("Input JSON must contain '" + primary_key + "'.");
+    }
+
+    throw std::runtime_error("Input JSON must contain '" + primary_key + "' or '" + fallback_key + "'.");
+}
+
+void ValidateRectangularMatrix(const Json&        values,
+                               const std::string& field_name)
+{
+    if (!values.is_array())
+    {
+        throw std::runtime_error(field_name + " must be a rank-2 array.");
+    }
+
+    std::size_t expected_cols = 0;
+    for (std::size_t row = 0; row < values.size(); ++row)
+    {
+        if (!values[row].is_array())
+        {
+            throw std::runtime_error(field_name + " must be a rank-2 array.");
+        }
+
+        if (row == 0)
+        {
+            expected_cols = values[row].size();
+        }
+        else if (values[row].size() != expected_cols)
+        {
+            throw std::runtime_error(field_name + " must be rectangular.");
+        }
+    }
+}
+
 std::string ReadTextFile(const std::filesystem::path& path)
 {
     std::ifstream handle(path, std::ios::binary);
@@ -227,6 +275,8 @@ std::string ReadTextFile(const std::filesystem::path& path)
 
 IndexTensor LoadIndexTensor(const Json& values)
 {
+    ValidateRectangularMatrix(values, "input_ids");
+
     const std::int64_t rows = static_cast<std::int64_t>(values.size());
     const std::int64_t cols = rows > 0 ? static_cast<std::int64_t>(values[0].size()) : 0;
 
@@ -244,6 +294,8 @@ IndexTensor LoadIndexTensor(const Json& values)
 
 Tensor LoadFloatTensor(const Json& values)
 {
+    ValidateRectangularMatrix(values, "attention_mask");
+
     const std::int64_t rows = static_cast<std::int64_t>(values.size());
     const std::int64_t cols = rows > 0 ? static_cast<std::int64_t>(values[0].size()) : 0;
 
@@ -298,8 +350,7 @@ std::pair<IndexTensor, std::optional<Tensor>> LoadTextInput(const std::filesyste
     if (path.extension() == ".json")
     {
         const Json payload = LoadJson(path);
-        const Json& input_ids =
-            payload.contains("input_ids") ? payload["input_ids"] : payload["inputs"];
+        const Json& input_ids = RequireMatrixField(payload, "input_ids", "inputs");
 
         std::optional<Tensor> attention_mask = std::nullopt;
         if (payload.contains("attention_mask"))
@@ -615,18 +666,21 @@ int main(int argc, char** argv)
         }
 
         inference::core::ArtifactBundle bundle(options.artifact_dir);
-        auto loaded = inference::artifacts::npz::LoadStateDictArtifact(bundle);
-
-        auto registry = inference::model_builder::ModelBuilderRegistry::CreateDefault();
-        auto built    = registry.Build(loaded);
+        const inference::core::ArtifactSpec artifact_spec = bundle.Inspect();
+        inference::runtime::ModelRunner     runner;
+        const auto                         load_status = runner.Load(bundle);
+        if (!load_status.ok())
+        {
+            throw std::runtime_error(load_status.message());
+        }
 
         Json result = Json::object();
-        result["model_type"]   = built.model_type;
+        result["model_type"]   = runner.model_type();
         result["checkpoint"]   = options.checkpoint_path.string();
         result["artifact_dir"] = options.artifact_dir.string();
         result["input_path"]   = options.input_path.string();
 
-        if (built.HasEncoderClassifier())
+        if (runner.HasEncoderClassifier())
         {
             const bool has_prompt = !options.prompt.empty() || !options.prompt_file_path.empty();
 
@@ -637,7 +691,7 @@ int main(int argc, char** argv)
             {
                 const std::filesystem::path tokenizer_path = !options.tokenizer_path.empty()
                                                                  ? options.tokenizer_path
-                                                                 : loaded.artifact.tokenizer_path;
+                                                                 : artifact_spec.tokenizer_path;
                 const auto tokenizer = inference::tokenization::LoadTokenizer(tokenizer_path);
                 const std::string prompt = !options.prompt.empty()
                                                ? options.prompt
@@ -645,7 +699,7 @@ int main(int argc, char** argv)
 
                 const TokenizedPrompt tokenized = EncodePrompt(prompt,
                                                                *tokenizer,
-                                                               built.encoder_classifier->config().max_length);
+                                                               runner.encoder_classifier_config().max_length);
 
                 inputs = tokenized.input_ids;
                 attention_mask = tokenized.attention_mask;
@@ -661,10 +715,10 @@ int main(int argc, char** argv)
                 attention_mask = loaded_input.second;
             }
 
-            const Tensor logits = built.encoder_classifier->Forward(inputs, attention_mask);
+            const Tensor logits = runner.RunEncoderClassifier(inputs, attention_mask);
             result["logits"] = TensorToJson(logits);
         }
-        else if (built.HasVisionDetector())
+        else if (runner.HasVisionDetector())
         {
             if (options.input_path.empty())
             {
@@ -672,7 +726,7 @@ int main(int argc, char** argv)
             }
 
             const Tensor image  = LoadVisionInput(options.input_path);
-            const auto   output = built.vision_detector->Forward(image);
+            const auto   output = runner.RunVisionDetector(image);
 
             result["pred_boxes"]             = TensorToJson(output.pred_boxes);
             result["pred_objectness_logits"] = TensorToJson(output.pred_objectness_logits);
