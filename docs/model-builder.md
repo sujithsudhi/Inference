@@ -31,8 +31,10 @@ The current supported graph patterns are:
 
 - `token_embedding` + `transformer_encoder` + `layer_norm` + `classifier_head`
   - resolves to `transformers.encoder_classifier`
+  - optional helper nodes: `cls_token`, `positional_encoding`
 - `patch_embedding` + `vision_backbone` + `detection_head`
   - resolves to `vlm.vision_detector`
+  - optional helper node: `cls_token`
 
 ## Current Built-In Model Types
 
@@ -196,7 +198,7 @@ The end-to-end IMDB test uses:
 
 - an artifact directory rooted at `artifact.json`
 - the generic NPZ-to-state-dict loader
-- the registry-based model builder
+- `runtime::ModelRunner`, which internally delegates model construction to the builder
 - the C++ encoder classifier runtime
 
 The following test binary exercises the full path when an IMDB fixture directory is present:
@@ -208,7 +210,7 @@ The following test binary exercises the full path when an IMDB fixture directory
 The vision-detector end-to-end test uses:
 
 - an artifact directory rooted at `artifact.json`
-- the registry-based detector builder
+- `runtime::ModelRunner`, which internally delegates model construction to the builder
 - the C++ detector runtime
 
 The following test binary exercises the full path when a detector fixture directory is present:

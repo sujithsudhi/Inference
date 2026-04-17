@@ -19,6 +19,13 @@ This keeps the inference-side contract stable even if exporter internals change 
 - direct model metadata plus `builder.model_type`
 - a module-level graph under `builder.graph` that the runtime resolves into a supported model family
 
+The current checkpoint-backed runtime flow is:
+
+1. `core::ArtifactBundle` resolves the bundle layout.
+2. `artifacts::npz::LoadStateDictArtifact(...)` loads metadata plus weights.
+3. `model_builder::ModelBuilderRegistry` resolves the graph or model type.
+4. `runtime::ModelRunner` owns the resulting executable model.
+
 ## Manifest Shape
 
 `artifact.json` is the canonical manifest:
@@ -87,6 +94,16 @@ The preferred way to describe PyTorch-style checkpoint structure going forward i
 
 The graph is validated as a named-tensor DAG and each node can declare a `param_prefix` so the
 artifact stays aligned with the original PyTorch module layout.
+
+The currently supported graph targets are:
+
+- `transformers.encoder_classifier`
+- `vlm.vision_detector`
+
+The current optional helper nodes recognized by the graph-backed builder are:
+
+- `cls_token`
+- `positional_encoding`
 
 ## Compatibility Mode
 

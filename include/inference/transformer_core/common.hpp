@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Shared transformer-core layers and attention primitives.
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -141,9 +144,13 @@ private:
 /// Output bundle returned by self-attention forward passes.
 struct AttentionResult
 {
+    /// Attention output tensor shaped `[batch, seq, embed_dim]` after head recombination.
     Tensor                      output;
+    /// Optional KV cache returned when cache capture is enabled.
     std::optional<KeyValueCache> cache;
+    /// Captured attention weights when tracing or explicit weight output is enabled.
     Tensor                      attention_weights;
+    /// Whether `attention_weights` contains valid captured data.
     bool                        has_attention_weights = false;
 };
 

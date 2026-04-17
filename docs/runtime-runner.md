@@ -19,6 +19,12 @@
 This keeps `apps/run_checkpoint.cpp` focused on CLI concerns such as prompt loading, JSON/NPZ input
 parsing, and result formatting, while the reusable runtime boundary lives in the library.
 
+## Relation To `Session`
+
+- `runtime::ModelRunner` is the checkpoint-backed execution path for built-in artifact families.
+- `runtime::Session` remains the adapter-oriented boundary for future decoder or multimodal flows
+  that do not map directly onto the current built-in checkpoint runners.
+
 ## Current Runner Surface
 
 `runtime::ModelRunner` supports:

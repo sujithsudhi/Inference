@@ -17,6 +17,15 @@ Owns artifact manifests, layout compatibility, and model-family-specific loaders
 
 Owns graph validation plus model-family resolution from `model.json` and state-dict metadata.
 
+### `transformer_core`
+
+Owns reusable tensor, attention, encoder, decoder, and vision building blocks that task-specific
+runtime models compose.
+
+### `models`
+
+Owns concrete checkpoint-backed runtime models such as the encoder classifier and vision detector.
+
 ### `core`
 
 Owns artifact discovery and shared status/result types.
@@ -37,6 +46,7 @@ Small binaries for inspection, smoke testing, and later interactive or server-st
 ## Builder vs Runner
 
 - `model_builder` stops at constructing a concrete runtime model.
+- `transformer_core` and `models` implement the reusable computation layers and concrete model logic.
 - `runtime` owns execution APIs over those constructed models.
 - `apps` should use runtime-facing runners instead of reaching into builder internals directly.
 

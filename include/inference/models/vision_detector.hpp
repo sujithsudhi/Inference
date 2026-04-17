@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Vision-detector model and configuration types.
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -13,58 +16,91 @@ namespace inference::models
 /// Configuration describing the shared vision backbone used by the detector.
 struct VisionBackboneConfig
 {
+    /// Input image size expected by the patch embedding.
     std::int64_t            image_size       = 0;
+    /// Patch size used by the strided patch embedding.
     std::int64_t            patch_size       = 0;
+    /// Number of input image channels.
     std::int64_t            in_channels      = 0;
+    /// Backbone embedding width.
     std::int64_t            embed_dim        = 0;
+    /// Number of transformer blocks in the backbone.
     std::int64_t            num_layers       = 0;
+    /// Number of self-attention heads per backbone block.
     std::int64_t            num_heads        = 0;
+    /// Feed-forward expansion ratio when `mlp_hidden_dim` is derived.
     float                   mlp_ratio        = 4.0F;
+    /// Explicit feed-forward hidden width.
     std::int64_t            mlp_hidden_dim   = 0;
+    /// Dropout rate used inside self-attention.
     float                   attention_dropout = 0.0F;
+    /// Residual/dropout rate used by the backbone.
     float                   dropout          = 0.0F;
+    /// Whether the attention projections include bias terms.
     bool                    qkv_bias         = true;
+    /// Whether the backbone prepends a learned CLS token.
     bool                    use_cls_token    = true;
+    /// Whether the backbone uses rotary position embeddings.
     bool                    use_rope         = true;
+    /// Epsilon used by backbone layer normalization.
     float                   layer_norm_eps   = 1e-6F;
+    /// Sliding-window size used by local-attention blocks.
     std::int64_t            local_window_size = 7;
+    /// Rotary base used by local-attention blocks.
     std::int64_t            local_rope_base  = 10000;
+    /// Rotary base used by global-attention blocks.
     std::int64_t            global_rope_base = 1000000;
+    /// Ordered pattern of backbone block types, usually `local` and `global`.
     std::vector<std::string> block_pattern    = {"local", "local", "local", "global"};
 };
 
 /// Configuration describing the fixed-query detection head.
 struct VisionDetectionHeadConfig
 {
+    /// Number of learned query embeddings.
     std::int64_t num_queries      = 0;
+    /// Number of predicted classes per query.
     std::int64_t num_classes      = 0;
+    /// Number of attention heads used by the query-to-memory cross-attention.
     std::int64_t num_heads        = 0;
+    /// Hidden width used by the query feed-forward and box heads.
     std::int64_t mlp_hidden_dim   = 0;
+    /// Residual/dropout rate used by the head.
     float        dropout          = 0.0F;
+    /// Epsilon used by head layer-normalization layers.
     float        layer_norm_eps   = 1e-5F;
 };
 
 /// Configuration for the full detector model.
 struct VisionDetectorConfig
 {
+    /// Shared vision backbone configuration.
     VisionBackboneConfig      backbone;
+    /// Fixed-query detection-head configuration.
     VisionDetectionHeadConfig head;
 };
 
 /// Backbone outputs surfaced for debugging and downstream heads.
 struct VisionBackboneOutput
 {
+    /// Final normalized backbone sequence including patch tokens and optional CLS token.
     transformer_core::Tensor sequence_output;
+    /// Patch-grid height after patch embedding.
     std::int64_t             grid_height = 0;
+    /// Patch-grid width after patch embedding.
     std::int64_t             grid_width  = 0;
 };
 
 /// Raw detector outputs before any thresholding or NMS.
 struct VisionDetectionOutput
 {
+    /// Final per-query feature vectors after cross-attention and head MLP refinement.
     transformer_core::Tensor query_features;
+    /// Decoded normalized boxes shaped `[batch, queries, 4]`.
     transformer_core::Tensor pred_boxes;
+    /// Raw objectness logits shaped `[batch, queries]`.
     transformer_core::Tensor pred_objectness_logits;
+    /// Raw class logits shaped `[batch, queries, num_classes]`.
     transformer_core::Tensor pred_class_logits;
 };
 

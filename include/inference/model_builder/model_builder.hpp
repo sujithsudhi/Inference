@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Registry-backed artifact model-builder interfaces.
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -14,6 +17,7 @@
 namespace inference::model_builder
 {
 
+/// \brief JSON alias used by artifact-backed model builders.
 using Json = nlohmann::json;
 
 /// Result of building a concrete runtime model from metadata plus a state dict.
@@ -37,41 +41,41 @@ public:
     /// Builder callback signature used for registered model factories.
     using BuilderFn = std::function<BuiltModel(const Json&, const transformer_core::StateDict&)>;
 
-    /// Register a builder for one model type.
+    /// \brief Register a builder callback for one stable model-type key.
     void Register(std::string model_type,
                   BuilderFn   builder);
 
-    /// Build a model from metadata and a generic state dict.
+    /// \brief Build one runtime model from explicit metadata plus a generic state dict.
     BuiltModel Build(const Json&                         metadata,
                      const transformer_core::StateDict& state_dict) const;
 
-    /// Build a model from a loaded state-dict artifact.
+    /// \brief Build one runtime model from an already-loaded artifact bundle.
     BuiltModel Build(const artifacts::npz::LoadedStateDictArtifact& artifact) const;
 
-    /// Create the default registry with the built-in transformer model builders.
+    /// \brief Create the default registry with the built-in encoder-classifier and vision-detector builders.
     static ModelBuilderRegistry CreateDefault();
 
 private:
     std::unordered_map<std::string, BuilderFn> builders_;
 };
 
-/// Infer the builder key to use for a given metadata/state_dict pair.
+/// \brief Infer the builder key to use for one metadata/state-dict pair.
 std::string InferModelType(const Json&                         metadata,
                            const transformer_core::StateDict& state_dict);
 
-/// Resolve the encoder-classifier configuration from metadata and checkpoint tensors.
+/// \brief Resolve one encoder-classifier config from artifact metadata and checkpoint tensors.
 models::EncoderClassifierConfig ResolveEncoderClassifierConfig(const Json&                         metadata,
                                                               const transformer_core::StateDict& state_dict);
 
-/// Build the built-in encoder-classifier model from metadata and checkpoint tensors.
+/// \brief Build the built-in encoder-classifier runtime model.
 BuiltModel BuildEncoderClassifier(const Json&                         metadata,
                                   const transformer_core::StateDict& state_dict);
 
-/// Resolve the vision-detector configuration from metadata and checkpoint tensors.
+/// \brief Resolve one vision-detector config from artifact metadata and checkpoint tensors.
 models::VisionDetectorConfig ResolveVisionDetectorConfig(const Json&                         metadata,
                                                         const transformer_core::StateDict& state_dict);
 
-/// Build the built-in vision detector from metadata and checkpoint tensors.
+/// \brief Build the built-in vision-detector runtime model.
 BuiltModel BuildVisionDetector(const Json&                         metadata,
                                const transformer_core::StateDict& state_dict);
 

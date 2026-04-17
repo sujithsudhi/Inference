@@ -17,6 +17,7 @@ This repo is the standalone runtime side of the stack. The goal is to keep train
 - artifact bundle inspection
 - artifact bundle contract
 - generic model builder entry points
+- checkpoint-backed runtime runner entry points
 - tokenizer abstraction
 - model adapter abstraction
 - a small CLI for artifact inspection and future smoke tests

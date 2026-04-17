@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Vision-oriented transformer-core layers and model types.
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -97,12 +100,19 @@ private:
 /// Configuration for VisionTransformer.
 struct VisionTransformerConfig
 {
+    /// Input image size expected by the model.
     std::int64_t image_size = 224;
+    /// Patch size used by the patch embedding.
     std::int64_t patch_size = 16;
+    /// Number of input image channels.
     std::int64_t in_channels = 3;
+    /// Embedding width used throughout the model.
     std::int64_t embed_dim = 1024;
+    /// Number of encoder blocks.
     std::int64_t num_layers = 12;
+    /// Number of attention heads per block.
     std::int64_t num_heads = 16;
+    /// Feed-forward expansion ratio.
     float        mlp_ratio = 4.0F;
 };
 
@@ -134,15 +144,23 @@ private:
 /// Configuration for TextTransformer.
 struct TextTransformerConfig
 {
+    /// Vocabulary size for the token embedding table.
     std::int64_t vocab_size = 50257;  // GPT-2 vocab
+    /// Maximum supported token sequence length.
     std::int64_t max_length = 1024;
+    /// Embedding width used throughout the model.
     std::int64_t embed_dim = 768;
+    /// Number of encoder blocks.
     std::int64_t depth = 12;
+    /// Number of attention heads per block.
     std::int64_t num_heads = 12;
+    /// Feed-forward expansion ratio.
     float        mlp_ratio = 4.0F;
+    /// Output classifier width.
     std::int64_t num_classes = 2;  // For IMDB binary classification
 };
 
+/// \brief Deserialize one `VisionTransformerConfig` from JSON.
 inline void from_json(const nlohmann::json& j, VisionTransformerConfig& c)
 {
     if (j.contains("image_size")) j.at("image_size").get_to(c.image_size);
@@ -154,6 +172,7 @@ inline void from_json(const nlohmann::json& j, VisionTransformerConfig& c)
     if (j.contains("mlp_ratio")) j.at("mlp_ratio").get_to(c.mlp_ratio);
 }
 
+/// \brief Deserialize one `TextTransformerConfig` from JSON.
 inline void from_json(const nlohmann::json& j, TextTransformerConfig& c)
 {
     if (j.contains("vocab_size")) j.at("vocab_size").get_to(c.vocab_size);

@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Text-oriented transformer-core layers and decoder helpers.
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -13,7 +16,9 @@ namespace inference::transformer_core
 /// Positional-encoding strategies supported by the text modules.
 enum class PositionalEncodingMethod
 {
+    /// Deterministic sinusoidal position encoding.
     Normal,
+    /// Trainable positional table loaded from the checkpoint.
     Trainable,
 };
 
@@ -113,7 +118,9 @@ private:
 /// Output bundle returned by decoder blocks when cache output is enabled.
 struct DecoderResult
 {
+    /// Decoder output tensor for the current forward pass.
     Tensor                      output;
+    /// Optional grown KV cache when cache output is enabled.
     std::optional<KeyValueCache> cache;
 };
 

@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Checkpoint-backed runtime runner interface.
+
 #include <optional>
 #include <string>
 

@@ -1,5 +1,8 @@
 #pragma once
 
+/// \file
+/// \brief Tensor, cache, and state-dict utility types for transformer-core modules.
+
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -276,7 +279,9 @@ private:
 /// Optional key/value cache used by autoregressive attention layers.
 struct KeyValueCache
 {
+    /// Cached key tensor shaped `[batch, heads, seq, head_dim]`.
     Tensor key;
+    /// Cached value tensor shaped `[batch, heads, seq, head_dim]`.
     Tensor value;
 
     /// Indicate whether either cached tensor is empty.
@@ -289,7 +294,9 @@ struct KeyValueCache
 /// Expected tensor name and shape pair used for state-dict contracts.
 struct TensorSpec
 {
+    /// Stable tensor name used in the state dict.
     std::string               name;
+    /// Expected tensor shape.
     std::vector<std::int64_t> shape;
 };
 
