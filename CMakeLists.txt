@@ -7,7 +7,7 @@ cmake_policy(SET CMP0169 OLD)
 
 option(BUILD_APPS  "Build command-line applications." ON)
 option(BUILD_TESTS "Build test binaries." ON)
-option(BUILD_TRANSFORMER_NPZ_LOADER "Build the migrated transformer NPZ loader." ON)
+option(BUILD_TRANSFORMER_NPZ_LOADER "Build NPZ-backed artifact loaders." ON)
 option(INFERENCE_ENABLE_TOKENIZERS_CPP "Build the tokenizers-cpp backend for text tokenization." ON)
 
 FetchContent_Declare(json
@@ -33,10 +33,6 @@ add_library(inference STATIC
 )
 
 if (BUILD_TRANSFORMER_NPZ_LOADER)
-    FetchContent_Declare(eigen
-                        GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-                        GIT_TAG 3.4.0
-    )
     FetchContent_Declare(cnpy
                         GIT_REPOSITORY https://github.com/rogersce/cnpy.git
                         GIT_TAG master
@@ -46,11 +42,6 @@ if (BUILD_TRANSFORMER_NPZ_LOADER)
                         GIT_TAG v1.3.1
     )
     set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "Disable zlib example targets." FORCE)
-    FetchContent_GetProperties(eigen)
-    if (NOT eigen_POPULATED)
-        FetchContent_Populate(eigen)
-    endif()
-
     FetchContent_GetProperties(cnpy)
     if (NOT cnpy_POPULATED)
         FetchContent_Populate(cnpy)
@@ -68,12 +59,6 @@ if (BUILD_TRANSFORMER_NPZ_LOADER)
         message(FATAL_ERROR "Unable to determine a zlib target for cnpy.")
     endif()
 
-    add_library(inference_eigen INTERFACE)
-    target_include_directories(inference_eigen
-        INTERFACE
-            ${eigen_SOURCE_DIR}
-    )
-
     add_library(cnpy STATIC
         ${cnpy_SOURCE_DIR}/cnpy.cpp
     )
@@ -89,7 +74,6 @@ if (BUILD_TRANSFORMER_NPZ_LOADER)
 
     target_sources(inference
         PRIVATE
-            src/artifacts/npz/transformer_loader.cpp
             src/artifacts/npz/state_dict_loader.cpp
     )
 
@@ -100,7 +84,6 @@ if (BUILD_TRANSFORMER_NPZ_LOADER)
 
     target_link_libraries(inference
         PUBLIC
-            inference_eigen
             cnpy
     )
 
@@ -182,24 +165,6 @@ endif()
 if (BUILD_TESTS)
     enable_testing()
 
-    add_executable(session_smoke_test
-        tests/session_smoke_test.cpp
-    )
-
-    target_link_libraries(session_smoke_test
-        PRIVATE
-            inference
-    )
-
-    add_executable(artifact_bundle_smoke_test
-        tests/artifact_bundle_smoke_test.cpp
-    )
-
-    target_link_libraries(artifact_bundle_smoke_test
-        PRIVATE
-            inference
-    )
-
     add_executable(transformer_core_smoke_test
         tests/transformer_core_smoke_test.cpp
     )
@@ -236,46 +201,32 @@ if (BUILD_TESTS)
             inference
     )
 
-    add_executable(model_runner_smoke_test
-        tests/model_runner_smoke_test.cpp
+    add_executable(encoder_e2e_test
+        tests/encoder_e2e_test.cpp
     )
 
-    target_link_libraries(model_runner_smoke_test
+    target_link_libraries(encoder_e2e_test
         PRIVATE
             inference
     )
 
-    add_executable(imdb_encoder_classifier_e2e_test
-        tests/imdb_encoder_classifier_e2e_test.cpp
-    )
-
-    target_link_libraries(imdb_encoder_classifier_e2e_test
-        PRIVATE
-            inference
-    )
-
-    add_executable(vision_detector_e2e_test
-        tests/vision_detector_e2e_test.cpp
-    )
-
-    target_link_libraries(vision_detector_e2e_test
-        PRIVATE
-            inference
-    )
-
-    add_test(NAME session_smoke_test COMMAND session_smoke_test)
-    add_test(NAME artifact_bundle_smoke_test COMMAND artifact_bundle_smoke_test)
+    add_test(NAME session_smoke_test
+             COMMAND model_builder_smoke_test session_smoke)
+    add_test(NAME artifact_bundle_smoke_test
+             COMMAND model_builder_smoke_test artifact_bundle)
     add_test(NAME transformer_core_smoke_test COMMAND transformer_core_smoke_test)
     add_test(NAME transformer_core_regression_test COMMAND transformer_core_regression_test)
     add_test(NAME state_dict_loader_smoke_test COMMAND state_dict_loader_smoke_test)
     add_test(NAME model_builder_smoke_test COMMAND model_builder_smoke_test)
-    add_test(NAME model_runner_smoke_test COMMAND model_runner_smoke_test)
+    add_test(NAME model_runner_smoke_test
+             COMMAND model_builder_smoke_test model_runner)
 
-    add_test(NAME imdb_encoder_classifier_e2e_test
-             COMMAND imdb_encoder_classifier_e2e_test
+    add_test(NAME encoder_e2e_test
+             COMMAND encoder_e2e_test
                      ${CMAKE_CURRENT_BINARY_DIR}/testdata/imdb_fixture)
 
     add_test(NAME vision_detector_e2e_test
-             COMMAND vision_detector_e2e_test
+             COMMAND encoder_e2e_test
+                     vision_detector_e2e
                      ${CMAKE_CURRENT_BINARY_DIR}/testdata/vision_detector_fixture)
 endif()

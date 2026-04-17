@@ -1,4 +1,6 @@
-build*/*
+build/
+build-vs2022/
+build*/
 out/
 .vscode/
 .idea/

@@ -5,10 +5,14 @@ This repo starts as a clean extraction target, not a direct file-for-file copy.
 ## Mapping
 
 - `Transformers/inference/cpp/load_params.cpp`
-  Migrated into `src/artifacts/npz/transformer_loader.cpp` as the first model-family-specific loader.
+  The initial extraction work informed the current generic NPZ state-dict path under
+  `src/artifacts/npz/state_dict_loader.cpp`. The older Eigen-backed transformer loader has now been
+  removed because the active runtime no longer uses it.
 
 - `Transformers/inference/cpp/model.hpp`
-  Split into `include/inference/artifacts/npz/transformer_weights.hpp` and `include/inference/artifacts/npz/transformer_loader.hpp`. The tokenizer ownership piece is intentionally deferred until the tokenization boundary settles.
+  The surviving runtime-facing split is now centered on `include/inference/artifacts/npz/state_dict_loader.hpp`
+  plus the task-specific model/runtime headers. The earlier legacy transformer-weight view types
+  were removed once they stopped having repo consumers.
 
 - `Transformers/inference/cpp/src/model/executer.*`
   Replace with library-backed apps. Interactive console behavior belongs in `apps/`, not in the reusable runtime.
@@ -27,4 +31,5 @@ This repo starts as a clean extraction target, not a direct file-for-file copy.
 2. Add one concrete decoder path, either as an artifact-backed `ModelRunner` target or as a
    `runtime::Session` adapter, plus one end-to-end smoke test using a small exported checkpoint.
 3. Decide whether tokenizer support is optional CMake feature or a separate package dependency.
-4. Start separating encoder, decoder, and multimodal weight schemas so one loader does not pretend to fit every model family.
+4. Keep the generic state-dict loader focused on artifact ingestion and let model-specific structure
+   live in builder/runtime code instead of resurrecting one-off legacy weight schemas.

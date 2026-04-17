@@ -3,13 +3,19 @@
 /// \file
 /// \brief Generic NPZ state-dict artifact loader interfaces.
 
+#include <cnpy.h>
+#include <nlohmann/json.hpp>
+
 #include <unordered_map>
 
-#include "inference/artifacts/npz/transformer_loader.hpp"
+#include "inference/core/artifact.hpp"
 #include "inference/transformer_core/tensor.hpp"
 
 namespace inference::artifacts::npz
 {
+
+/// \brief JSON alias used by NPZ artifact loaders.
+using Json = nlohmann::json;
 
 /// Loaded artifact bundle containing JSON metadata and a generic PyTorch-style state dict.
 struct LoadedStateDictArtifact

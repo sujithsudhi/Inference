@@ -3,6 +3,7 @@
 
 #include "inference/artifacts/npz/state_dict_loader.hpp"
 
+#include <fstream>
 #include <stdexcept>
 
 namespace inference::artifacts::npz
@@ -45,6 +46,63 @@ void RequireArtifactPaths(const core::ArtifactSpec& artifact)
     {
         throw std::runtime_error("Artifact is missing a weights path.");
     }
+}
+
+Json LoadJsonDocument(const std::string& path)
+{
+    std::ifstream handle(path);
+    if (!handle.is_open())
+    {
+        throw std::runtime_error("Failed to open JSON file: " + path);
+    }
+
+    Json payload;
+    handle >> payload;
+    return payload;
+}
+
+cnpy::npz_t LoadNpzArchive(const std::string& path)
+{
+    return cnpy::npz_load(path);
+}
+
+std::unordered_map<std::string, int> LoadVocabMap(const std::string& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+    {
+        throw std::runtime_error("Failed to open vocab file: " + path);
+    }
+
+    Json vocab_json;
+    file >> vocab_json;
+
+    std::unordered_map<std::string, int> vocab;
+
+    if (vocab_json.contains("model") && vocab_json["model"].contains("vocab"))
+    {
+        const auto& vocab_obj = vocab_json["model"]["vocab"];
+        for (const auto& [token, id] : vocab_obj.items())
+        {
+            vocab[token] = id.get<int>();
+        }
+    }
+    else if (vocab_json.is_object())
+    {
+        for (const auto& [token, id] : vocab_json.items())
+        {
+            if (id.is_number_integer())
+            {
+                vocab[token] = id.get<int>();
+            }
+        }
+    }
+    else
+    {
+        throw std::runtime_error("Unsupported vocab format in: " + path);
+    }
+
+    return vocab;
 }
 
 }  // namespace
@@ -91,12 +149,12 @@ LoadedStateDictArtifact LoadStateDictArtifact(const core::ArtifactSpec& artifact
 
     LoadedStateDictArtifact loaded;
     loaded.artifact   = artifact;
-    loaded.metadata   = LoadJson(artifact.metadata_path.string());
-    loaded.state_dict = LoadStateDict(LoadNpz(artifact.weights_path.string()));
+    loaded.metadata   = LoadJsonDocument(artifact.metadata_path.string());
+    loaded.state_dict = LoadStateDict(LoadNpzArchive(artifact.weights_path.string()));
 
     if (!artifact.tokenizer_path.empty())
     {
-        loaded.vocab = LoadVocab(artifact.tokenizer_path.string());
+        loaded.vocab = LoadVocabMap(artifact.tokenizer_path.string());
     }
 
     return loaded;

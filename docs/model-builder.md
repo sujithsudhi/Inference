@@ -194,16 +194,16 @@ of the runtime build working without raw prompt support.
 
 ## IMDB End-To-End Test Flow
 
-The end-to-end IMDB test uses:
+The end-to-end encoder test uses:
 
 - an artifact directory rooted at `artifact.json`
 - the generic NPZ-to-state-dict loader
 - `runtime::ModelRunner`, which internally delegates model construction to the builder
 - the C++ encoder classifier runtime
 
-The following test binary exercises the full path when an IMDB fixture directory is present:
+The following test binary exercises the full path when an encoder fixture directory is present:
 
-- `imdb_encoder_classifier_e2e_test`
+- `encoder_e2e_test`
 
 ## Vision Detector End-To-End Test Flow
 
