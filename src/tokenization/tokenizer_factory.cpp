@@ -8,8 +8,6 @@
 #include <stdexcept>
 #include <string>
 
-#include "inference/tokenization/whitespace_tokenizer.hpp"
-
 #if defined(INFERENCE_HAS_TOKENIZERS_CPP)
 #include <tokenizers_cpp.h>
 #endif
@@ -126,20 +124,6 @@ TokenizerPtr LoadTokenizer(const std::filesystem::path& path)
 #else
     throw std::runtime_error("This build does not include tokenizers-cpp support. "
                              "Reconfigure with Rust/Cargo available so INFERENCE_ENABLE_TOKENIZERS_CPP can build.");
-#endif
-}
-
-TokenizerPtr CreateWhitespaceTokenizer()
-{
-    return std::make_shared<WhitespaceTokenizer>();
-}
-
-bool HasTokenizersCppBackend() noexcept
-{
-#if defined(INFERENCE_HAS_TOKENIZERS_CPP)
-    return true;
-#else
-    return false;
 #endif
 }
 
