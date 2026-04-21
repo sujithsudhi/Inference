@@ -21,9 +21,14 @@ parsing, and result formatting, while the reusable runtime boundary lives in the
 
 ## Relation To `Session`
 
-- `runtime::ModelRunner` is the checkpoint-backed execution path for built-in artifact families.
+- `runtime::ModelRunner` is the artifact-backed execution path for built-in runtime families.
 - `runtime::Session` remains the adapter-oriented boundary for future decoder or multimodal flows
-  that do not map directly onto the current built-in checkpoint runners.
+  that do not map directly onto the current built-in artifact runners.
+
+The decoder-runtime draft extends that direction with a dedicated typed generation surface before it
+is wrapped by one adapter-backed `Session` flow:
+
+- `docs/decoder-runtime-design.md`
 
 ## Current Runner Surface
 
@@ -39,6 +44,10 @@ The current stable runtime families are:
 
 - `transformers.encoder_classifier`
 - `vlm.vision_detector`
+
+`apps/run_checkpoint.cpp` can still accept a raw `.pt` checkpoint at the CLI boundary, but it
+imports that source into a temporary artifact bundle before handing execution off to
+`runtime::ModelRunner`.
 
 ## Supported Transformer-Core Building Blocks
 

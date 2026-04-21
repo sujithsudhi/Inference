@@ -1,5 +1,5 @@
 """
-Run one vision-detector checkpoint on one image and save raw plus rendered outputs.
+Run one vision-detector source on one image and save raw plus rendered outputs.
 """
 
 from __future__ import annotations
@@ -44,15 +44,15 @@ def _parse_args() -> argparse.Namespace:
     Args:
         None.
     Returns:
-        Parsed namespace containing checkpoint, image, and output settings.
+        Parsed namespace containing source, image, and output settings.
     """
     parser = argparse.ArgumentParser(
-        description = "Wrap run_checkpoint.exe for image-based object detection inference.")
+        description = "Wrap run_checkpoint.exe for image-based object detection inference from a raw checkpoint or artifact.")
 
     parser.add_argument("--checkpoint",
                         required = True,
                         type = Path,
-                        help = "Path to the PyTorch checkpoint (.pt).")
+                        help = "Path to the PyTorch checkpoint (.pt) or exported artifact directory.")
     parser.add_argument("--image",
                         required = True,
                         type = Path,
@@ -91,7 +91,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact-dir",
                         type = Path,
                         default = None,
-                        help = "Optional artifact directory passed to run_checkpoint.exe.")
+                        help = "Optional output artifact directory when the source is a raw checkpoint.")
     parser.add_argument("--keep-artifact",
                         action = "store_true",
                         help = "Keep the generated artifact bundle on disk.")
@@ -131,6 +131,18 @@ def _resolve_run_checkpoint(run_checkpoint_path : Path | None,
     raise FileNotFoundError("Unable to locate run_checkpoint.exe. Checked:\n" + formatted)
 
 
+def _is_exported_artifact(checkpoint_path : Path,
+                         ) -> bool:
+    """
+    Indicate whether one path already points at an exported artifact bundle.
+    Args:
+        checkpoint_path : Path to inspect.
+    Returns:
+        ``True`` when the path looks like an artifact directory.
+    """
+    return checkpoint_path.is_dir() and (checkpoint_path / "model.json").exists()
+
+
 def _load_checkpoint_metadata(checkpoint_path : Path,
                              ) -> dict[str, Any]:
     """
@@ -148,11 +160,44 @@ def _load_checkpoint_metadata(checkpoint_path : Path,
     return checkpoint
 
 
-def _resolve_image_size(checkpoint_payload : dict[str, Any],
-                        image_size_override : int | None,
-                       ) -> int:
+def _load_artifact_metadata(checkpoint_path : Path,
+                           ) -> dict[str, Any]:
     """
-    Resolve the resized image size expected by the detector.
+    Load the exported artifact metadata stored in ``model.json``.
+    Args:
+        checkpoint_path : Artifact directory containing ``model.json``.
+    Returns:
+        Parsed model metadata dictionary.
+    Raises:
+        ValueError : Raised when the artifact metadata is missing or invalid.
+    """
+    model_path = checkpoint_path / "model.json"
+    if not model_path.exists():
+        raise ValueError(f"Artifact metadata not found: {model_path}")
+
+    payload = json.loads(model_path.read_text(encoding = "utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Artifact model.json must deserialize to a dictionary payload.")
+    return payload
+
+
+def _source_kind(checkpoint_path : Path,
+                ) -> str:
+    """
+    Classify one detector source as a raw checkpoint or exported artifact.
+    Args:
+        checkpoint_path : Path supplied through ``--checkpoint``.
+    Returns:
+        Stable source-kind string used in summaries.
+    """
+    return "artifact" if _is_exported_artifact(checkpoint_path) else "raw_checkpoint"
+
+
+def _resolve_checkpoint_image_size(checkpoint_payload : dict[str, Any],
+                                   image_size_override : int | None,
+                                  ) -> int:
+    """
+    Resolve the resized image size expected by a raw detector checkpoint.
     Args:
         checkpoint_payload  : Loaded checkpoint mapping.
         image_size_override : Optional CLI override.
@@ -176,6 +221,79 @@ def _resolve_image_size(checkpoint_payload : dict[str, Any],
 
     raise ValueError("Unable to resolve image size from the checkpoint. "
                      "Pass --image-size explicitly.")
+
+
+def _resolve_artifact_image_size(artifact_payload : dict[str, Any],
+                                 image_size_override : int | None,
+                                ) -> int:
+    """
+    Resolve the resized image size expected by one exported artifact bundle.
+    Args:
+        artifact_payload    : Parsed ``model.json`` metadata.
+        image_size_override : Optional CLI override.
+    Returns:
+        Positive square image size in pixels.
+    Raises:
+        ValueError : Raised when the artifact does not expose a valid image size.
+    """
+    if image_size_override is not None:
+        if image_size_override <= 0:
+            raise ValueError("--image-size must be positive.")
+        return image_size_override
+
+    config = artifact_payload.get("config", {})
+    if isinstance(config, dict):
+        model_cfg = config.get("model", {})
+        if isinstance(model_cfg, dict):
+            backbone_cfg = model_cfg.get("backbone", {})
+            if isinstance(backbone_cfg, dict):
+                image_size = backbone_cfg.get("image_size")
+                if isinstance(image_size, int) and image_size > 0:
+                    return image_size
+
+    builder = artifact_payload.get("builder", {})
+    if isinstance(builder, dict):
+        graph = builder.get("graph", {})
+        if isinstance(graph, dict):
+            nodes = graph.get("nodes", [])
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if not isinstance(node, dict):
+                        continue
+                    if node.get("op") != "patch_embedding":
+                        continue
+
+                    attrs = node.get("attrs", {})
+                    if not isinstance(attrs, dict):
+                        continue
+
+                    image_size = attrs.get("image_size")
+                    if isinstance(image_size, int) and image_size > 0:
+                        return image_size
+
+    raise ValueError("Unable to resolve image size from the artifact metadata. "
+                     "Pass --image-size explicitly.")
+
+
+def _resolve_image_size(checkpoint_path : Path,
+                        image_size_override : int | None,
+                       ) -> int:
+    """
+    Resolve the resized image size expected by the detector source.
+    Args:
+        checkpoint_path     : Path to the checkpoint or artifact directory.
+        image_size_override : Optional CLI override.
+    Returns:
+        Positive square image size in pixels.
+    """
+    if _is_exported_artifact(checkpoint_path):
+        artifact_payload = _load_artifact_metadata(checkpoint_path)
+        return _resolve_artifact_image_size(artifact_payload,
+                                            image_size_override)
+
+    checkpoint_payload = _load_checkpoint_metadata(checkpoint_path)
+    return _resolve_checkpoint_image_size(checkpoint_payload,
+                                          image_size_override)
 
 
 def _prepare_image_npz(image_path  : Path,
@@ -216,12 +334,12 @@ def _run_checkpoint(run_checkpoint_path : Path,
     Invoke ``run_checkpoint.exe`` for one detector inference request.
     Args:
         run_checkpoint_path : Path to the executable wrapper.
-        checkpoint_path     : Path to the PyTorch checkpoint.
+        checkpoint_path     : Path to the raw checkpoint or exported artifact.
         input_path          : Prepared vision input NPZ file.
         output_path         : Raw output JSON emitted by the executable.
         python_executable   : Python interpreter forwarded to the importer.
-        artifact_dir        : Optional explicit artifact directory.
-        keep_artifact       : Whether the generated artifact bundle should be preserved.
+        artifact_dir        : Optional explicit artifact directory for raw checkpoint imports.
+        keep_artifact       : Whether a generated artifact bundle should be preserved.
     Returns:
         None.
     Raises:
@@ -531,6 +649,7 @@ def _draw_overlay(image_path       : Path,
 
 def _write_processed_summary(output_path          : Path,
                              checkpoint_path      : Path,
+                             source_kind          : str,
                              image_path           : Path,
                              input_npz_path       : Path,
                              raw_json_path        : Path,
@@ -546,7 +665,8 @@ def _write_processed_summary(output_path          : Path,
     Write one compact processed summary alongside the raw detector output.
     Args:
         output_path       : Destination summary JSON path.
-        checkpoint_path   : Path to the input checkpoint.
+        checkpoint_path   : Path to the input source supplied through ``--checkpoint``.
+        source_kind       : Whether the source was a raw checkpoint or exported artifact.
         image_path        : Path to the source image.
         input_npz_path    : Path to the generated detector input NPZ.
         raw_json_path     : Path to the raw run_checkpoint JSON.
@@ -560,7 +680,9 @@ def _write_processed_summary(output_path          : Path,
     Returns:
         None.
     """
-    payload = {"checkpoint"         : str(checkpoint_path),
+    payload = {"source_path"        : str(checkpoint_path),
+               "source_kind"        : source_kind,
+               "checkpoint"         : str(checkpoint_path),
                "image"              : str(image_path),
                "input_npz"          : str(input_npz_path),
                "raw_output_json"    : str(raw_json_path),
@@ -595,7 +717,7 @@ def main() -> None:
     image_path = args.image.resolve()
 
     if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        raise FileNotFoundError(f"Checkpoint or artifact source not found: {checkpoint_path}")
     if not image_path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
 
@@ -604,8 +726,9 @@ def main() -> None:
                   else image_path.parent / "out")
     output_dir.mkdir(parents = True, exist_ok = True)
 
-    checkpoint_payload = _load_checkpoint_metadata(checkpoint_path)
-    image_size = _resolve_image_size(checkpoint_payload,
+    source_kind = _source_kind(checkpoint_path)
+    source_is_artifact = source_kind == "artifact"
+    image_size = _resolve_image_size(checkpoint_path,
                                      args.image_size)
 
     image_stem = image_path.stem
@@ -615,10 +738,13 @@ def main() -> None:
     overlay_path = output_dir / f"{image_stem}.overlay.jpg"
 
     artifact_dir = args.artifact_dir
-    if artifact_dir is None and args.keep_artifact:
-        artifact_dir = output_dir / f"{checkpoint_path.stem}_artifact"
-    if artifact_dir is not None:
-        artifact_dir = artifact_dir.resolve()
+    if source_is_artifact:
+        artifact_dir = checkpoint_path
+    else:
+        if artifact_dir is None and args.keep_artifact:
+            artifact_dir = output_dir / f"{checkpoint_path.stem}_artifact"
+        if artifact_dir is not None:
+            artifact_dir = artifact_dir.resolve()
 
     print("[1/4] Preparing normalized image tensor...", flush = True)
     _prepare_image_npz(image_path  = image_path,
@@ -653,11 +779,12 @@ def main() -> None:
 
     _write_processed_summary(output_path       = processed_json_path,
                              checkpoint_path   = checkpoint_path,
+                             source_kind       = source_kind,
                              image_path        = image_path,
                              input_npz_path    = input_npz_path,
                              raw_json_path     = raw_json_path,
                              overlay_path      = overlay_path,
-                             artifact_dir      = artifact_dir if args.keep_artifact else None,
+                             artifact_dir      = artifact_dir if (args.keep_artifact or source_is_artifact) else None,
                              image_size        = image_size,
                              score_threshold   = args.score_threshold,
                              nms_iou_threshold = args.nms_iou_threshold,
@@ -670,7 +797,7 @@ def main() -> None:
     print(f"  detections    : {processed_json_path}", flush = True)
     print(f"  overlay image : {overlay_path}", flush = True)
     print(f"  kept boxes    : {len(detections)}", flush = True)
-    if args.keep_artifact and artifact_dir is not None:
+    if (args.keep_artifact or source_is_artifact) and artifact_dir is not None:
         print(f"  artifact dir  : {artifact_dir}", flush = True)
 
 

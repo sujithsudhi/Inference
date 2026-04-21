@@ -1,5 +1,5 @@
 """
-Convert a supported PyTorch checkpoint into an artifact bundle for the C++ graph builder.
+Import one raw PyTorch checkpoint into an artifact bundle for the C++ graph builder.
 """
 
 from __future__ import annotations
@@ -518,12 +518,12 @@ def _write_artifact(output_dir     : Path,
 
 def main() -> None:
     """
-    Convert one supported PyTorch checkpoint into an artifact bundle.
+    Import one supported raw PyTorch checkpoint into an artifact bundle.
     """
-    parser = argparse.ArgumentParser(description = "Import a PyTorch checkpoint into an inference artifact bundle.")
+    parser = argparse.ArgumentParser(description = "Import one raw PyTorch checkpoint into an inference artifact bundle.")
     parser.add_argument("--checkpoint",
                         required = True,
-                        help     = "Path to the .pt checkpoint.")
+                        help     = "Path to the raw .pt checkpoint file.")
     parser.add_argument("--output-dir",
                         required = True,
                         help     = "Directory that will receive artifact.json, model.json, and weights.npz.")
@@ -538,6 +538,10 @@ def main() -> None:
     checkpoint_path = Path(args.checkpoint)
     output_dir = Path(args.output_dir)
     tokenizer_path = Path(args.tokenizer) if args.tokenizer is not None else None
+
+    if checkpoint_path.is_dir():
+        raise ValueError("tools/import_pytorch_checkpoint.py expects a raw checkpoint file, "
+                         "not an artifact directory. Pass the artifact directly to run_checkpoint instead.")
 
     checkpoint = torch.load(checkpoint_path, map_location = "cpu")
     state_dict = _extract_state_dict(checkpoint)

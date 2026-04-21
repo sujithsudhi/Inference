@@ -8,7 +8,7 @@ The preferred artifact layout for this repo is a directory bundle:
 my-artifact/
 |-- artifact.json
 |-- model.json
-|-- weights.npz
+|-- weights.npz or weights.safetensors
 `-- tokenizer/tokenizer.json
 ```
 
@@ -19,10 +19,10 @@ This keeps the inference-side contract stable even if exporter internals change 
 - direct model metadata plus `builder.model_type`
 - a module-level graph under `builder.graph` that the runtime resolves into a supported model family
 
-The current checkpoint-backed runtime flow is:
+The current artifact-backed runtime flow is:
 
 1. `core::ArtifactBundle` resolves the bundle layout.
-2. `artifacts::npz::LoadStateDictArtifact(...)` loads metadata plus weights.
+2. `artifacts::npz::LoadStateDictArtifact(...)` loads metadata plus weights from `npz` or `safetensors`.
 3. `model_builder::ModelBuilderRegistry` resolves the graph or model type.
 4. `runtime::ModelRunner` owns the resulting executable model.
 
@@ -44,6 +44,8 @@ The current checkpoint-backed runtime flow is:
   }
 }
 ```
+
+`weight_format` is typically `npz` or `safetensors` for manifest bundles.
 
 ## Reserved File Roles
 

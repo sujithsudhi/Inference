@@ -1,6 +1,6 @@
 # Model Builder
 
-`Inference` now includes a lightweight model-builder layer for checkpoint-backed runtime models.
+`Inference` now includes a lightweight model-builder layer for artifact-backed runtime models.
 
 The builder and the execution boundary are intentionally separate:
 
@@ -70,7 +70,7 @@ The builder consumes the existing artifact bundle contract:
 
 - `artifact.json`
 - `model.json`
-- `weights.npz`
+- `weights.npz` or `weights.safetensors`
 
 For generic PyTorch-style exports, `model.json` should include:
 
@@ -157,11 +157,11 @@ If `builder.model_type` is omitted, the registry currently infers the encoder-cl
 
 When `builder.graph` is present, the registry validates the graph and derives the target runtime model type from the node pattern.
 
-## Direct Checkpoint Import
+## Direct Source Execution
 
-For execution flows, the repo now provides a direct checkpoint runner.
+For execution flows, the repo now provides a direct source runner.
 
-For text models, the preferred user-facing flow is checkpoint + tokenizer + prompt:
+For text models, the preferred raw-checkpoint flow is checkpoint + tokenizer + prompt:
 
 ```powershell
 .\build-vs2022\Release\run_checkpoint.exe `
@@ -178,9 +178,13 @@ For model-ready tensor inputs or vision models, `--input` remains available:
   --input C:\path\to\input.json
 ```
 
-`run_checkpoint` uses the bundled importer at `tools/import_pytorch_checkpoint.py` to:
+When `--checkpoint` points at a prebuilt artifact bundle or legacy artifact prefix, `run_checkpoint`
+loads that artifact directly and skips the raw-checkpoint importer.
 
-- load a supported PyTorch checkpoint
+When `--checkpoint` points at a raw `.pt` file, `run_checkpoint` uses the bundled importer at
+`tools/import_pytorch_checkpoint.py` to:
+
+- load a supported raw PyTorch checkpoint
 - materialize a temporary artifact bundle with `artifact.json`, `model.json`, and `weights.npz`
 - copy the tokenizer into the temporary artifact bundle when one is provided
 - load the artifact through `runtime::ModelRunner`, which internally delegates model construction to the graph builder
@@ -220,5 +224,11 @@ The following test binary exercises the full path when a detector fixture direct
 ## Next Extension Points
 
 - Add more registry entries for decoder language models.
+- Add explicit graph-backed `transformers.decoder_lm` support instead of inferring decoder identity from node patterns.
+- Keep decoder graph validation typed and module-level instead of growing toward arbitrary operator execution.
 - Add an artifact-conversion tool that emits graph-backed manifests directly.
 - Add more runner entry points as new artifact-backed runtime families become executable.
+
+The current decoder draft lives in:
+
+- `docs/decoder-runtime-design.md`

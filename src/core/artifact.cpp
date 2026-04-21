@@ -253,6 +253,7 @@ ArtifactSpec inspect_manifest_dir(const std::filesystem::path& root)
     if (spec.weights_path.empty())
     {
         register_file(spec, "weights", root / "weights.npz");
+        register_file(spec, "weights", root / "weights.safetensors");
         register_file(spec, "weights", root / "model.npz");
         register_file(spec, "weights", root / "model.safetensors");
         register_file(spec, "weights", root / "model.pt");
@@ -277,6 +278,7 @@ bool has_flat_dir_artifact_files(const std::filesystem::path& root)
     return path_exists(root / "model.json")                  ||
            path_exists(root / "config.json")                 ||
            path_exists(root / "weights.npz")                 ||
+           path_exists(root / "weights.safetensors")         ||
            path_exists(root / "model.npz")                   ||
            path_exists(root / "model.safetensors")           ||
            path_exists(root / "model.pt")                    ||
@@ -293,6 +295,7 @@ ArtifactSpec inspect_flat_dir(const std::filesystem::path& root)
     register_file(spec, "metadata", root / "model.json");
     register_file(spec, "metadata", root / "config.json");
     register_file(spec, "weights",  root / "weights.npz");
+    register_file(spec, "weights",  root / "weights.safetensors");
     register_file(spec, "weights",  root / "model.npz");
     register_file(spec, "weights",  root / "model.safetensors");
     register_file(spec, "weights",  root / "model.pt");

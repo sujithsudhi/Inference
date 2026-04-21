@@ -1,7 +1,7 @@
 #pragma once
 
 /// \file
-/// \brief Generic NPZ state-dict artifact loader interfaces.
+/// \brief Generic state-dict artifact loader interfaces for NPZ and safetensors bundles.
 
 #include <cnpy.h>
 #include <nlohmann/json.hpp>
@@ -14,7 +14,7 @@
 namespace inference::artifacts::npz
 {
 
-/// \brief JSON alias used by NPZ artifact loaders.
+/// \brief JSON alias used by state-dict artifact loaders.
 using Json = nlohmann::json;
 
 /// Loaded artifact bundle containing JSON metadata and a generic PyTorch-style state dict.

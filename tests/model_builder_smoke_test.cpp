@@ -2,6 +2,7 @@
 /// \brief Smoke tests for the artifact model-builder registry.
 
 #include <cstdio>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -78,46 +79,109 @@ std::vector<std::size_t> ToNpyShape(const std::vector<std::int64_t>& shape)
     return out;
 }
 
+void WriteLittleEndianUint64(std::ofstream& handle,
+                             const std::uint64_t value)
+{
+    for (std::size_t index = 0; index < 8; ++index)
+    {
+        const auto byte = static_cast<unsigned char>((value >> (index * 8U)) & 0xFFU);
+        handle.put(static_cast<char>(byte));
+    }
+}
+
+void WriteSafeTensorWeights(const std::filesystem::path& path,
+                            const StateDict&             state_dict)
+{
+    nlohmann::json header_json = nlohmann::json::object();
+    std::uint64_t  offset      = 0;
+
+    for (const auto& [key, tensor] : state_dict)
+    {
+        const std::uint64_t byte_count = static_cast<std::uint64_t>(tensor.numel()) * sizeof(float);
+        header_json[key] = {{"dtype",        "F32"},
+                            {"shape",        tensor.shape()},
+                            {"data_offsets", {offset, offset + byte_count}}};
+        offset += byte_count;
+    }
+
+    const std::string header_payload = header_json.dump();
+
+    std::ofstream handle(path, std::ios::binary);
+    if (!handle.is_open())
+    {
+        throw std::runtime_error("Failed to open safetensors artifact for writing.");
+    }
+
+    WriteLittleEndianUint64(handle, static_cast<std::uint64_t>(header_payload.size()));
+    handle.write(header_payload.data(),
+                 static_cast<std::streamsize>(header_payload.size()));
+
+    for (const auto& [key, tensor] : state_dict)
+    {
+        (void)key;
+        const auto byte_count = static_cast<std::streamsize>(tensor.numel() * sizeof(float));
+        handle.write(reinterpret_cast<const char*>(tensor.data()), byte_count);
+    }
+}
+
 void WriteArtifactBundle(const std::filesystem::path& root,
                          const nlohmann::json&        model_json,
-                         const StateDict&             state_dict)
+                         const StateDict&             state_dict,
+                         const std::string&           weight_format = "npz")
 {
     std::filesystem::create_directories(root);
+
+    const std::string weights_file = weight_format == "safetensors"
+                                         ? "weights.safetensors"
+                                         : "weights.npz";
 
     const nlohmann::json manifest_json = {
         {"schema_version", "inference.artifact/1"},
         {"artifact_name",  root.filename().string()},
         {"model_family",   "test"},
         {"task",           "test"},
-        {"weight_format",  "npz"},
+        {"weight_format",  weight_format},
         {"files",          {{"metadata", "model.json"},
-                            {"weights",  "weights.npz"}}}
+                            {"weights",  weights_file}}}
     };
 
     std::ofstream(root / "artifact.json") << manifest_json.dump(2) << "\n";
     std::ofstream(root / "model.json") << model_json.dump(2) << "\n";
 
-    const auto npz_path = root / "weights.npz";
-    std::filesystem::remove(npz_path);
+    if (weight_format == "npz")
+    {
+        const auto npz_path = root / "weights.npz";
+        std::filesystem::remove(npz_path);
 
-    bool first = true;
+        bool first = true;
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable : 4267)
 #endif
-    for (const auto& [key, tensor] : state_dict)
-    {
-        const auto shape = ToNpyShape(tensor.shape());
-        cnpy::npz_save(npz_path.string(),
-                       key,
-                       tensor.data(),
-                       shape,
-                       first ? "w" : "a");
-        first = false;
-    }
+        for (const auto& [key, tensor] : state_dict)
+        {
+            const auto shape = ToNpyShape(tensor.shape());
+            cnpy::npz_save(npz_path.string(),
+                           key,
+                           tensor.data(),
+                           shape,
+                           first ? "w" : "a");
+            first = false;
+        }
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
+        return;
+    }
+
+    if (weight_format == "safetensors")
+    {
+        WriteSafeTensorWeights(root / "weights.safetensors",
+                               state_dict);
+        return;
+    }
+
+    throw std::runtime_error("Unsupported weight format for artifact smoke test: " + weight_format);
 }
 
 void RunSessionSmokeTest()
@@ -832,6 +896,133 @@ void RunModelRunnerVisionGraphTest()
     std::filesystem::remove_all(temp_root);
 }
 
+void RunModelRunnerVisionSafeTensorGraphTest()
+{
+    const auto temp_root = std::filesystem::temp_directory_path() / "inference-model-runner-vision-safetensors";
+    std::filesystem::remove_all(temp_root);
+
+    VisionDetectorConfig config;
+    config.backbone.image_size        = 8;
+    config.backbone.patch_size        = 4;
+    config.backbone.in_channels       = 3;
+    config.backbone.embed_dim         = 8;
+    config.backbone.num_layers        = 2;
+    config.backbone.num_heads         = 2;
+    config.backbone.mlp_ratio         = 2.0F;
+    config.backbone.mlp_hidden_dim    = 16;
+    config.backbone.attention_dropout = 0.0F;
+    config.backbone.dropout           = 0.0F;
+    config.backbone.qkv_bias          = true;
+    config.backbone.use_cls_token     = true;
+    config.backbone.use_rope          = true;
+    config.backbone.layer_norm_eps    = 1e-6F;
+    config.backbone.local_window_size = 3;
+    config.backbone.local_rope_base   = 10000;
+    config.backbone.global_rope_base  = 1000000;
+    config.backbone.block_pattern     = {"local", "global"};
+    config.head.num_queries           = 4;
+    config.head.num_classes           = 3;
+    config.head.num_heads             = 2;
+    config.head.mlp_hidden_dim        = 12;
+    config.head.dropout               = 0.0F;
+    config.head.layer_norm_eps        = 1e-5F;
+
+    VisionDetector reference_model(config);
+    const StateDict state_dict = BuildStateDict(reference_model.ParameterSpecs());
+
+    const nlohmann::json metadata = nlohmann::json::parse(R"JSON(
+{
+  "builder": {
+    "graph": {
+      "version": "inference.graph/1",
+      "inputs": ["image"],
+      "outputs": ["pred_boxes", "pred_objectness_logits", "pred_class_logits"],
+      "nodes": [
+        {
+          "name": "patch_embed",
+          "op": "patch_embedding",
+          "inputs": ["image"],
+          "outputs": ["patch_tokens"],
+          "param_prefix": "backbone.patch_embed.",
+          "attrs": {
+            "image_size": 8,
+            "patch_size": 4,
+            "in_channels": 3,
+            "embed_dim": 8
+          }
+        },
+        {
+          "name": "backbone",
+          "op": "vision_backbone",
+          "inputs": ["patch_tokens"],
+          "outputs": ["vision_features"],
+          "param_prefix": "backbone.",
+          "attrs": {
+            "num_layers": 2,
+            "num_heads": 2,
+            "mlp_ratio": 2.0,
+            "mlp_hidden_dim": 16,
+            "attention_dropout": 0.0,
+            "dropout": 0.0,
+            "qkv_bias": true,
+            "use_cls_token": true,
+            "use_rope": true,
+            "layer_norm_eps": 1e-6,
+            "local_window_size": 3,
+            "local_rope_base": 10000,
+            "global_rope_base": 1000000,
+            "block_pattern": ["local", "global"]
+          }
+        },
+        {
+          "name": "head",
+          "op": "detection_head",
+          "inputs": ["vision_features"],
+          "outputs": ["pred_boxes", "pred_objectness_logits", "pred_class_logits"],
+          "param_prefix": "detection_head.",
+          "attrs": {
+            "num_queries": 4,
+            "num_classes": 3,
+            "num_heads": 2,
+            "mlp_hidden_dim": 12,
+            "dropout": 0.0,
+            "layer_norm_eps": 1e-5
+          }
+        }
+      ]
+    }
+  },
+  "format": "safetensors"
+}
+)JSON");
+
+    WriteArtifactBundle(temp_root,
+                        metadata,
+                        state_dict,
+                        "safetensors");
+
+    ModelRunner runner;
+    const auto  status = runner.Load(inference::core::ArtifactBundle(temp_root));
+    Expect(status.ok(),
+           "Vision safetensors artifact should load through ModelRunner.");
+    Expect(runner.HasVisionDetector(),
+           "Runner should surface the vision-detector runtime for safetensors artifacts.");
+
+    Tensor image({1, 3, 8, 8}, 0.0F);
+    for (std::size_t index = 0; index < image.numel(); ++index)
+    {
+        image.flat(index) = static_cast<float>(index) / 255.0F;
+    }
+
+    const auto output = runner.RunVisionDetector(image);
+    Expect(output.pred_boxes.shape() == std::vector<std::int64_t>({1, 4, 4}),
+           "Safetensors ModelRunner vision-detector box shape mismatch.");
+    Expect(output.pred_class_logits.shape() == std::vector<std::int64_t>({1, 4, 3}),
+           "Safetensors ModelRunner vision-detector class-logit shape mismatch.");
+
+    std::filesystem::remove_all(temp_root);
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -855,6 +1046,7 @@ int main(int argc, char** argv)
             RunModelRunnerMissingArtifactTest();
             RunModelRunnerEncoderGraphTest();
             RunModelRunnerVisionGraphTest();
+            RunModelRunnerVisionSafeTensorGraphTest();
             return 0;
         }
 

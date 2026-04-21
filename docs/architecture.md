@@ -53,9 +53,13 @@ Small binaries for inspection, smoke testing, and later interactive or server-st
 ## Intended Growth Path
 
 1. Keep the artifact contract stable while the exporter side is still evolving in `Transformers`.
-2. Add a decoder adapter for TinyStories-style generation.
+2. Add one typed decoder runtime with explicit manifest support, cache ownership, and `Prefill()` / `DecodeStep()` semantics.
 3. Add a shared tokenization package boundary for HuggingFace tokenizer support.
 4. Add a VLM adapter that can compose a vision encoder, projector, and text decoder without changing the core session API.
+
+The concrete decoder draft for that work lives in:
+
+- `docs/decoder-runtime-design.md`
 
 ## Deliberate Non-Goals For The First Cut
 

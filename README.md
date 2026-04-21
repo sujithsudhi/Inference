@@ -17,7 +17,7 @@ This repo is the standalone runtime side of the stack. The goal is to keep train
 - artifact bundle inspection
 - artifact bundle contract
 - generic model builder entry points
-- checkpoint-backed runtime runner entry points
+- artifact-backed runtime runner entry points, with raw-checkpoint import when needed
 - tokenizer abstraction
 - model adapter abstraction
 - a small CLI for artifact inspection and future smoke tests
@@ -49,7 +49,7 @@ The canonical layout is now a directory bundle rooted at an artifact folder:
 my-artifact/
 |-- artifact.json
 |-- model.json
-|-- weights.npz
+|-- weights.npz or weights.safetensors
 `-- tokenizer/tokenizer.json
 ```
 
@@ -83,12 +83,17 @@ The repo now keeps artifact resolution and inference-time execution on separate 
 
 This keeps graph interpretation out of the application layer and gives tests a stable runtime API to target.
 
-## Direct Checkpoint Run
+## Direct Source Run
 
-The repo now includes a direct runner that accepts a PyTorch checkpoint plus one input file and
-handles the temporary artifact conversion internally.
+The repo now includes a direct runner that accepts either:
 
-For text models, the intended path is now checkpoint + tokenizer + prompt:
+- a raw PyTorch checkpoint plus one input file
+- an already-exported artifact bundle or legacy artifact prefix
+
+When the source is a raw checkpoint, the runner handles temporary artifact conversion internally.
+When the source is already an artifact, the runner loads it directly.
+
+For text models, the intended raw-checkpoint path is tokenizer + prompt:
 
 ```powershell
 .\build-vs2022\Release\run_checkpoint.exe `
@@ -97,7 +102,15 @@ For text models, the intended path is now checkpoint + tokenizer + prompt:
   --prompt "this movie was great"
 ```
 
-For vision models, keep using a model-ready input file:
+For prebuilt artifacts, point `--checkpoint` at the artifact directory:
+
+```powershell
+.\build-vs2022\Release\run_checkpoint.exe `
+  --checkpoint C:\path\to\vision_detector_sigmoid_sqrt\best `
+  --input C:\path\to\input.npz
+```
+
+For raw vision checkpoints, keep using a model-ready input file:
 
 ```powershell
 .\build-vs2022\Release\run_checkpoint.exe `
@@ -116,7 +129,10 @@ Current input formats:
 text tokenization when the build can find Rust/Cargo. If Rust is not installed, the repo still
 builds, but raw prompt execution is unavailable until the tokenizer backend is enabled.
 
-The importer currently supports the checkpoint families already implemented in this repo:
+`tools/import_pytorch_checkpoint.py` is only used when `--checkpoint` points at a raw `.pt`
+checkpoint. It is not used for prebuilt artifact bundles.
+
+The raw-checkpoint importer currently supports the checkpoint families already implemented in this repo:
 
 - IMDB-style encoder classifier checkpoints
 - fixed-query vision detector checkpoints

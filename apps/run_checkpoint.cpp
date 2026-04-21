@@ -1,5 +1,5 @@
 /// \file
-/// \brief Direct checkpoint import and execution CLI entry point.
+/// \brief Direct model-source load and execution CLI entry point.
 
 #include <cstdio>
 #include <cstdlib>
@@ -44,7 +44,8 @@ struct Options
 
 std::string Usage()
 {
-    return "Usage: run_checkpoint --checkpoint <model.pt> [--input <input.json|input.npz>] "
+    return "Usage: run_checkpoint --checkpoint <model.pt|artifact-dir|legacy-prefix> "
+           "[--input <input.json|input.npz>] "
            "[--tokenizer <tokenizer.json|tokenizer.model>] [--prompt <text> | --prompt-file <file.txt>] "
            "[--artifact-dir <dir>] [--output <result.json>] [--python <python>] [--task <hint>] "
            "[--keep-artifact]";
@@ -100,6 +101,26 @@ std::filesystem::path MakeTemporaryArtifactDir()
     }
 
     return std::filesystem::temp_directory_path() / ("inference-artifact-" + suffix);
+}
+
+bool IsPrebuiltArtifact(const std::filesystem::path& source_path)
+{
+    const inference::core::ArtifactBundle bundle(source_path);
+    if (!bundle.Exists())
+    {
+        return false;
+    }
+
+    const inference::core::ArtifactSpec spec = bundle.Inspect();
+    if (spec.metadata_path.empty() || spec.weights_path.empty())
+    {
+        return false;
+    }
+
+    return spec.weight_format == "npz"         ||
+           spec.weight_format == "safetensors" ||
+           spec.weights_path.extension() == ".npz" ||
+           spec.weights_path.extension() == ".safetensors";
 }
 
 Options ParseArgs(int argc,
@@ -191,11 +212,6 @@ Options ParseArgs(int argc,
     if (has_text_prompt && options.tokenizer_path.empty())
     {
         throw std::runtime_error("A text prompt requires --tokenizer.\n" + Usage());
-    }
-
-    if (options.artifact_dir.empty())
-    {
-        options.artifact_dir = MakeTemporaryArtifactDir();
     }
 
     return options;
@@ -577,14 +593,15 @@ Json TensorToJson(const Tensor& tensor)
     return TensorToJsonRecursive(tensor, 0, flat_index);
 }
 
-int RunImporter(const Options& options)
+int RunImporter(const Options&               options,
+                const std::filesystem::path& artifact_dir)
 {
     const std::filesystem::path importer_path =
         std::filesystem::path(INFERENCE_SOURCE_DIR) / "tools" / "import_pytorch_checkpoint.py";
 
     if (!std::filesystem::exists(importer_path))
     {
-        throw std::runtime_error("Checkpoint importer script is missing: " + importer_path.string());
+        throw std::runtime_error("Raw-checkpoint importer script is missing: " + importer_path.string());
     }
 
     std::string inner_command = "& "
@@ -594,7 +611,7 @@ int RunImporter(const Options& options)
                                 + " --checkpoint "
                                 + QuotePowerShell(options.checkpoint_path.string())
                                 + " --output-dir "
-                                + QuotePowerShell(options.artifact_dir.string());
+                                + QuotePowerShell(artifact_dir.string());
 
     if (!options.task_hint.empty())
     {
@@ -632,10 +649,12 @@ int main(int argc, char** argv)
     try
     {
         const Options options = ParseArgs(argc, argv);
+        const bool    use_prebuilt_artifact = IsPrebuiltArtifact(options.checkpoint_path);
 
-        if (!std::filesystem::exists(options.checkpoint_path))
+        if (!std::filesystem::exists(options.checkpoint_path) && !use_prebuilt_artifact)
         {
-            throw std::runtime_error("Checkpoint file not found: " + options.checkpoint_path.string());
+            throw std::runtime_error("Checkpoint or artifact source not found: "
+                                     + options.checkpoint_path.string());
         }
 
         if (!options.input_path.empty() && !std::filesystem::exists(options.input_path))
@@ -653,22 +672,31 @@ int main(int argc, char** argv)
             throw std::runtime_error("Prompt file not found: " + options.prompt_file_path.string());
         }
 
-        std::filesystem::create_directories(options.artifact_dir);
+        const std::filesystem::path artifact_root = use_prebuilt_artifact
+                                                        ? options.checkpoint_path
+                                                        : (options.artifact_dir.empty()
+                                                               ? MakeTemporaryArtifactDir()
+                                                               : options.artifact_dir);
 
-        if (!options.keep_artifact)
+        if (!use_prebuilt_artifact)
         {
-            cleanup_dir = options.artifact_dir;
+            std::filesystem::create_directories(artifact_root);
+
+            if (!options.keep_artifact)
+            {
+                cleanup_dir = artifact_root;
+            }
+
+            const int importer_exit_code = RunImporter(options, artifact_root);
+            if (importer_exit_code != 0)
+            {
+                throw std::runtime_error("Checkpoint importer failed with exit code "
+                                         + std::to_string(importer_exit_code)
+                                         + ".");
+            }
         }
 
-        const int importer_exit_code = RunImporter(options);
-        if (importer_exit_code != 0)
-        {
-            throw std::runtime_error("Checkpoint importer failed with exit code "
-                                     + std::to_string(importer_exit_code)
-                                     + ".");
-        }
-
-        inference::core::ArtifactBundle bundle(options.artifact_dir);
+        inference::core::ArtifactBundle bundle(artifact_root);
         const inference::core::ArtifactSpec artifact_spec = bundle.Inspect();
         inference::runtime::ModelRunner     runner;
         const auto                         load_status = runner.Load(bundle);
@@ -679,8 +707,10 @@ int main(int argc, char** argv)
 
         Json result = Json::object();
         result["model_type"]   = runner.model_type();
+        result["source_path"]  = options.checkpoint_path.string();
+        result["source_kind"]  = use_prebuilt_artifact ? "artifact" : "raw_checkpoint";
         result["checkpoint"]   = options.checkpoint_path.string();
-        result["artifact_dir"] = options.artifact_dir.string();
+        result["artifact_dir"] = artifact_root.string();
         result["input_path"]   = options.input_path.string();
 
         if (runner.HasEncoderClassifier())
@@ -725,7 +755,7 @@ int main(int argc, char** argv)
         {
             if (options.input_path.empty())
             {
-                throw std::runtime_error("Vision-detector checkpoints require --input with an image tensor.");
+                throw std::runtime_error("Vision-detector sources require --input with an image tensor.");
             }
 
             const Tensor image  = LoadVisionInput(options.input_path);
@@ -737,7 +767,7 @@ int main(int argc, char** argv)
         }
         else
         {
-            throw std::runtime_error("Checkpoint importer produced an unsupported runtime model.");
+            throw std::runtime_error("Model source resolved to an unsupported runtime model.");
         }
 
         if (!options.output_path.empty())
